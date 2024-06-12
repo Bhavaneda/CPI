@@ -1,0 +1,213 @@
+Certainly! Here's the entire code, including data fetching, preprocessing, training SARIMA models, and setting up Flask endpoints for live data display and predictions:
+
+fetch_and_train.py
+This script fetches data from Yahoo Finance, preprocesses it, trains SARIMA models, and saves them to disk.
+
+python
+Copy code
+import yfinance as yf
+from pymongo import MongoClient
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+import pickle
+import os
+import pandas as pd
+
+def fetch_data(ticker):
+    stock = yf.Ticker(ticker)
+    data = stock.history(period='max')  # Fetch maximum available historical data
+    return data
+
+def store_data(ticker, data):
+    client = MongoClient('mongodb://localhost:27017/')
+    db = client['stock_data']
+    collection = db['daily_prices']
+
+    for date, row in data.iterrows():
+        document = row.to_dict()
+        document['ticker'] = ticker
+        document['date'] = date
+
+        collection.update_one(
+            {'ticker': ticker, 'date': date},
+            {'$set': document},
+            upsert=True
+        )
+    client.close()
+
+def preprocess_data(ticker):
+    client = MongoClient('mongodb://localhost:27017/')
+    db = client['stock_data']
+    collection = db['daily_prices']
+
+    data = list(collection.find({'ticker': ticker}))
+    df = pd.DataFrame(data)
+    
+    df['date'] = pd.to_datetime(df['date'])
+    df.set_index('date', inplace=True)
+    df.sort_index(inplace=True)
+    
+    client.close()
+    return df['Close']  # Extracting Close prices for SARIMA
+
+def train_model(ticker, ts):
+    model = SARIMAX(ts, order=(1, 1, 1), seasonal_order=(1, 1, 1, 12))  # Example SARIMA parameters
+    fitted_model = model.fit()
+    
+    os.makedirs('models', exist_ok=True)
+    
+    with open(f'models/{ticker}_sarima_model.pkl', 'wb') as f:
+        pickle.dump(fitted_model, f)
+
+if __name__ == '__main__':
+    tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'FB']  # Add more tickers as needed
+    for ticker in tickers:
+        data = fetch_data(ticker)
+        store_data(ticker, data)
+        ts = preprocess_data(ticker)
+        train_model(ticker, ts)
+app.py
+This Flask app provides endpoints for fetching live stock data and making predictions using the trained SARIMA models.
+
+python
+Copy code
+from flask import Flask, request, jsonify
+import yfinance as yf
+import pickle
+import os
+import pandas as pd
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+
+app = Flask(__name__)
+
+def load_model(ticker):
+    model_path = f'models/{ticker}_sarima_model.pkl'
+    if os.path.exists(model_path):
+        with open(model_path, 'rb') as f:
+            model = pickle.load(f)
+        return model
+    else:
+        return None
+
+@app.route('/api/stocks/live', methods=['GET'])
+def get_live_stock_data():
+    try:
+        ticker = request.args.get('ticker')
+        stock = yf.Ticker(ticker)
+        live_data = stock.history(period='1d', interval='1m')
+        live_data = live_data.tail(1).to_dict('records')[0]
+        return jsonify(live_data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/predict', methods=['POST'])
+def predict_stock():
+    try:
+        data = request.json
+        ticker = data['ticker']
+        
+        # Fetch the latest data
+        stock = yf.Ticker(ticker)
+        df = stock.history(period='5d')
+        
+        # Preprocess data
+        ts = df['Close']
+        
+        # Load the model and make a prediction
+        model = load_model(ticker)
+        if model is None:
+            return jsonify({'error': 'Model not found for the given ticker'}), 404
+        
+        prediction = model.forecast(steps=1)[-1]  # Predict one step ahead
+        
+        return jsonify({'prediction': prediction})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
+Summary
+fetch_and_train.py fetches historical stock data, preprocesses it, trains SARIMA models, and saves them to disk.
+app.py provides Flask endpoints for fetching live stock data and making predictions using the trained SARIMA models.
+You can run fetch_and_train.py periodically using a scheduler like cron to keep the models updated with the latest data. Then, users can interact with the Flask app to get live stock data and predictions.
+
+
+
+To execute the program, follow these steps:
+
+Install Dependencies: Make sure you have Python installed on your system. You'll also need to install the required libraries. You can install them using pip:
+bash
+Copy code
+pip install yfinance pymongo statsmodels flask
+Run fetch_and_train.py: This script fetches historical stock data, preprocesses it, trains SARIMA models, and saves them to disk. Open a terminal, navigate to the directory containing fetch_and_train.py, and run the script:
+bash
+Copy code
+python fetch_and_train.py
+This script will fetch data, preprocess it, train SARIMA models, and save them to the models directory.
+
+Run app.py: This script sets up a Flask web server with endpoints for fetching live stock data and making predictions using the trained SARIMA models. Open a new terminal, navigate to the directory containing app.py, and run the script:
+bash
+Copy code
+python app.py
+This will start the Flask web server, and you'll see output indicating that the server is running.
+
+Access Endpoints: Once the server is running, you can access the endpoints using a web browser, curl, or any HTTP client. Here are the endpoints you can access:
+To get live stock data: http://localhost:5000/api/stocks/live?ticker=<ticker_symbol>
+To make a prediction: Send a POST request to http://localhost:5000/api/predict with JSON data containing the ticker symbol:
+json
+Copy code
+{
+    "ticker": "<ticker_symbol>"
+}
+Replace <ticker_symbol> with the desired stock ticker symbol, such as "AAPL" for Apple Inc.
+
+That's it! You've now executed the program. You can access the live data and make predictions using the provided endpoints.
+
+
+
+
+
+
+
+
+To schedule a job using cron, you'll need to follow these steps:
+
+Open Crontab: Open a terminal window on your system.
+
+Edit Crontab: Type the following command to edit the crontab file:
+
+bash
+Copy code
+crontab -e
+If it's the first time you're using crontab, you may be prompted to select an editor. Choose your preferred editor (e.g., nano, vim, etc.).
+
+Add a New Cron Job: In the crontab file, each line represents a cron job. To add a new cron job, you need to specify the schedule and the command to run.
+
+The general syntax for a cron job entry is as follows:
+
+sql
+Copy code
+minute hour day_of_month month day_of_week command_to_run
+For example, to run a script named fetch_and_train.py every Sunday at 3 AM, you would add the following line:
+
+bash
+Copy code
+0 3 * * 0 /usr/bin/python3 /path/to/fetch_and_train.py
+Here's what each field means:
+
+0: Minute (0-59)
+3: Hour (0-23)
+*: Day of month (1-31)
+*: Month (1-12)
+0: Day of week (0-7, where 0 and 7 represent Sunday)
+Replace /path/to/fetch_and_train.py with the actual path to your Python script.
+
+Save and Exit: After adding the cron job, save and exit the crontab editor. The specific steps to save and exit depend on the text editor you're using. For example, in nano, you can press Ctrl + X, then Y to confirm changes, and Enter to exit.
+
+Verify: Once you've saved the crontab file, cron will automatically reload the new configuration. You can verify that the cron job has been added by typing:
+
+bash
+Copy code
+crontab -l
+This command lists all the cron jobs in the current user's crontab.
+
+That's it! The cron job will now run at the specified schedule, executing the command you provided. Make sure your script (fetch_and_train.py in this case) is executable and has the correct shebang (#!/usr/bin/python3) at the beginning of the script file.

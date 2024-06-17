@@ -1,56 +1,38 @@
-import yfinance as yf
+import pandas as pd
 from pymongo import MongoClient
-from statsmodels.tsa.statespace.sarimax import SARIMAX
+from statsmodels.tsa.vector_ar.var_model import VAR
 import pickle
 import os
-import pandas as pd
 
-def fetch_data(ticker):
-    stock = yf.Ticker(ticker)
-    data = stock.history(period='max')  # Fetch maximum available historical data
-    return data
-def store_data(ticker, data):
+def fetch_data_from_mongodb(ticker):
     client = MongoClient('mongodb://localhost:27017/')
-    db = client['stock_data']
-    collection = db['daily_prices']
-
-    for date, row in data.iterrows():
-        document = row.to_dict()
-        document['ticker'] = ticker
-        document['date'] = date
-
-        collection.update_one(
-            {'ticker': ticker, 'date': date},
-            {'$set': document},
-            upsert=True
-        )
+    db = client['stockdata']
+    collection = db['daily_price']
+    cursor = collection.find({'Ticker': ticker})
+    df = pd.DataFrame(list(cursor))
     client.close()
-def preprocess_data(ticker):
-    client = MongoClient('mongodb://localhost:27017/')
-    db = client['stock_data']
-    collection = db['daily_prices']
+    return df
 
-    data = list(collection.find({'ticker': ticker}))
-    df = pd.DataFrame(data)
-    
-    df['date'] = pd.to_datetime(df['date'])
-    df.set_index('date', inplace=True)
+def preprocess_data(df):
+    df['Date'] = pd.to_datetime(df['Date'])
+    df.set_index('Date', inplace=True)
     df.sort_index(inplace=True)
-    
-    client.close()
-    return df['Close']  # Extracting Close prices for SARIMA
-def train_model(ticker, ts):
-    model = SARIMAX(ts, order=(1, 1, 1), seasonal_order=(1, 1, 1, 12))  # Example SARIMA parameters
-    fitted_model = model.fit()
-    
-    os.makedirs('models', exist_ok=True)
-    
-    with open(f'models/{ticker}_sarima_model.pkl', 'wb') as f:
-        pickle.dump(fitted_model, f)
+    return df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]
+
+def train_model(ticker, df):
+    try:
+        model = VAR(df)
+        fitted_model = model.fit()
+        os.makedirs('models', exist_ok=True)
+        with open(f'models/{ticker}_var_model.pkl', 'wb') as f:
+            pickle.dump(fitted_model, f)
+        print(f"VAR model trained and saved successfully for {ticker}.")
+    except Exception as e:
+        print(f"Error training VAR model for {ticker}: {str(e)}")
+
 if __name__ == '__main__':
-    tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN']  # Add more tickers as needed
+    tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN']
     for ticker in tickers:
-        data = fetch_data(ticker)
-        store_data(ticker, data)
-        ts = preprocess_data(ticker)
+        data = fetch_data_from_mongodb(ticker)
+        ts = preprocess_data(data)
         train_model(ticker, ts)

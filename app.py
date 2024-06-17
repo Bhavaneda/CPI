@@ -1,87 +1,83 @@
 from flask import Flask, request, jsonify
-import yfinance as yf
-import pickle
-import os
 import pandas as pd
-from statsmodels.tsa.statespace.sarimax import SARIMAX
+import numpy as np
+import pickle
+from pymongo import MongoClient
+from datetime import datetime, timedelta
+from statsmodels.tsa.vector_ar.var_model import VAR
 
 app = Flask(__name__)
 
-# Function to load SARIMA model
-def load_model(ticker):
-    model_path = f'models/{ticker}_sarima_model.pkl'
-    if os.path.exists(model_path):
-        with open(model_path, 'rb') as f:
+# Load VAR models for each ticker
+def load_var_models():
+    tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN']  # Update with your tickers
+    models = {}
+    for ticker in tickers:
+        with open(f'models/{ticker}_var_model.pkl', 'rb') as f:
             model = pickle.load(f)
-        return model
-    else:
-        return None
+            models[ticker] = model
+    return models
 
-# Route to fetch live stock data
-@app.route('/api/stocks/live', methods=['GET'])
-def get_live_stock_data():
+# Function to fetch historical data from MongoDB up to a specified date
+def fetch_historical_data(ticker, end_date):
+    client = MongoClient('mongodb://localhost:27017/')
+    db = client['stockdata']
+    collection = db['daily_price']
+    cursor = collection.find({'Ticker': ticker, 'Date': {'$lte': end_date}})
+    df = pd.DataFrame(list(cursor))
+    client.close()
+    return df
+
+# Function to preprocess data for VAR prediction
+def preprocess_data_for_var(df):
+    df['Date'] = pd.to_datetime(df['Date'])
+    df.set_index('Date', inplace=True)
+    df.sort_index(inplace=True)
+    return df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]
+
+# Function to predict stock price for the next day using the VAR model
+def predict_stock_price(var_model, latest_data):
     try:
-        ticker = request.args.get('ticker')
-        if not ticker:
-            return jsonify({'error': 'Ticker symbol is required as query parameter'}), 400
+        # Preprocess latest data for VAR prediction
+        ts = preprocess_data_for_var(latest_data)
         
-        stock = yf.Ticker(ticker)
-        live_data = stock.history(period='1d',actions=True)
-
+        # Make predictions using VAR model
+        lag_order = var_model.k_ar
+        forecast_input = ts.values[-lag_order:]
         
-        if live_data.empty:
-            return jsonify({'error': f'No data found for ticker {ticker}'}), 404
+        # Predict for the next day
+        target_date = ts.index[-1] + timedelta(days=1)
+        forecast = var_model.forecast(forecast_input, steps=1)
         
-        # Extract relevant fields
-        live_data = live_data.tail(1).to_dict('records')[0]
-        response = {
-            'Open': live_data['Open'],
-            'High': live_data['High'],
-            'Low': live_data['Low'],
-            'Close': live_data['Close'],
-            'Volume': live_data['Volume']
-        }
+        # Extracting the prediction for the next day's Close price
+        predicted_close = forecast[-1][3]  # Index 3 corresponds to 'Close' column
         
-        return jsonify(response)
+        return predicted_close, target_date
     
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"Error predicting stock price: {str(e)}")
+        return None, None
 
-
-# Route to predict stock using SARIMA model
-@app.route('/api/predict', methods=['POST'])
-def predict_stock():
-    try:
-        data = request.json
-        ticker = data.get('ticker')
-        
-        if not ticker:
-            return jsonify({'error': 'Ticker symbol is required in JSON payload'}), 400
-        
-        # Fetch the latest historical data
-        stock = yf.Ticker(ticker)
-        df = stock.history(period='5d')
-        
-        if df.empty:
-            return jsonify({'error': f'No historical data available for ticker {ticker}'}), 404
-        
-        # Preprocess data
-        ts = df['Close']
-        ts.index = pd.to_datetime(ts.index)  # Ensure datetime index
-        
-        # Load the SARIMA model
-        model = load_model(ticker)
-        if model is None:
-            return jsonify({'error': 'Model not found for the given ticker'}), 404
-        
-        # Make a prediction
-        forecast = model.get_forecast(steps=1)
-        prediction = forecast.predicted_mean.values[-1]
-        
-        return jsonify({'prediction': prediction})
+# Route for predicting stock price for the next day
+@app.route('/predict', methods=['POST'])
+def predict():
+    ticker = request.json['ticker']
     
-    except KeyError as ke:
-        return jsonify({'error': f'KeyError: {str(ke)}'}), 400
+    try:
+        # Fetch historical data up to 2024/06/17 from MongoDB
+        historical_data = fetch_historical_data(ticker, datetime(2024, 6, 17))
+        
+        # Load VAR model for the specified ticker
+        models = load_var_models()
+        var_model = models[ticker]
+        
+        # Predict stock price for the next day using VAR model
+        predicted_close, target_date = predict_stock_price(var_model, historical_data)
+        
+        if predicted_close is not None:
+            return jsonify({'ticker': ticker, 'predicted_close': predicted_close, 'target_date': target_date.strftime('%Y-%m-%d')})
+        else:
+            return jsonify({'error': 'Failed to predict stock price.'}), 500
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500

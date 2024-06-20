@@ -213,3 +213,75 @@ def predict_next_month():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
+
+
+
+
+
+
+import pandas as pd
+from pymongo import MongoClient
+from statsmodels.tsa.vector_ar.var_model import VAR
+import pickle
+import os
+
+def fetch_data_from_mongodb(ticker):
+    client = MongoClient('mongodb://localhost:27017/')
+    db = client['stockdata']
+    collection = db['daily_price']
+    cursor = collection.find({'Ticker': ticker})
+    df = pd.DataFrame(list(cursor))
+    client.close()
+    return df
+
+def preprocess_data(df):
+    df['Date'] = pd.to_datetime(df['Date'])
+    df.set_index('Date', inplace=True)
+    df.sort_index(inplace=True)
+    return df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]
+
+def select_best_lag_order(data):
+    best_aic = float("inf")
+    best_lag_order = 1
+    
+    for p in range(1, 11):  # Iterate over lag orders from 1 to 10
+        model = VAR(data)
+        try:
+            results = model.fit(maxlags=p, ic='aic', cov_type='robust')
+            if results.aic < best_aic:
+                best_aic = results.aic
+                best_lag_order = p
+        except Exception as e:
+            print(f"Issue with lag order {p}: {str(e)}")
+            continue
+    
+    print(f"Best lag order selected: {best_lag_order} with AIC {best_aic}")
+    return best_lag_order
+
+def train_model(ticker, df):
+    try:
+        # Selecting the best lag order using AIC and robust covariance estimation
+        lag_order = select_best_lag_order(df)
+        
+        # Train VAR model with the selected lag order and robust covariance
+        model = VAR(df)
+        fitted_model = model.fit(maxlags=lag_order, cov_type='robust')
+        
+        # Save the trained model to disk
+        os.makedirs('models', exist_ok=True)
+        with open(f'models/{ticker}_var_model.pkl', 'wb') as f:
+            pickle.dump(fitted_model, f)
+        
+        print(f"VAR model trained and saved successfully for {ticker}.")
+    
+    except Exception as e:
+        print(f"Error training VAR model for {ticker}: {str(e)}")
+
+if __name__ == '__main__':
+    tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN']
+    for ticker in tickers:
+        data = fetch_data_from_mongodb(ticker)
+        ts = preprocess_data(data)
+        train_model(ticker, ts)
+pip install statsmodels==0.13.0

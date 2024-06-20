@@ -1,3 +1,84 @@
+
+import pandas as pd
+from pymongo import MongoClient
+from statsmodels.tsa.vector_ar.var_model import VAR
+import pickle
+import os
+from sklearn.preprocessing import StandardScaler
+import matplotlib.pyplot as plt
+from statsmodels.tsa.stattools import adfuller
+
+def fetch_data_from_mongodb(ticker):
+    client = MongoClient('mongodb://localhost:27017/')
+    db = client['stockdata']
+    collection = db['daily_price']
+    
+    cursor = collection.find({'Ticker': ticker})
+    df = pd.DataFrame(list(cursor))
+    
+    client.close()
+    return df
+
+def test_stationarity(timeseries):
+    result = adfuller(timeseries)
+    print(f'ADF Statistic: {result[0]}')
+    print(f'p-value: {result[1]}')
+    for key, value in result[4].items():
+        print(f'Critical Value {key}: {value}')
+
+def preprocess_data(df):
+    df['Date'] = pd.to_datetime(df['Date'])
+    df.set_index('Date', inplace=True)
+    df.sort_index(inplace=True)
+    scaler = StandardScaler()
+    scaled_df = pd.DataFrame(scaler.fit_transform(df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]), columns=['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume'], index=df.index)
+    return scaled_df
+
+def check_residuals(var_model):
+    residuals = var_model.resid
+    fig, axes = plt.subplots(nrows=var_model.neqs, ncols=1, figsize=(10, 10))
+    for i in range(var_model.neqs):
+        axes[i].plot(residuals[:, i])
+        axes[i].set_title(f'Residuals of equation {i+1}')
+    plt.tight_layout()
+    plt.show()
+
+def check_model_stability(var_model):
+    stability = var_model.is_stable()
+    print(f'Model Stability: {stability}')
+
+def train_var_model(ticker, ts):
+    try:
+        model = VAR(ts)
+        lag_order = model.select_order(maxlags=15)
+        best_lag = lag_order.aic
+        var_model = model.fit(best_lag)
+        
+        check_model_stability(var_model)
+        check_residuals(var_model)
+
+        os.makedirs('model', exist_ok=True)
+
+        with open(f'model/{ticker}_var_model.pkl', 'wb') as f:
+            pickle.dump(var_model, f)
+        
+        print(f"VAR model trained and saved successfully for {ticker} with lag order {best_lag}.")
+
+    except Exception as e:
+        print(f"Error training VAR model for {ticker}: {str(e)}")
+
+if __name__ == '__main__':
+    tickers = ['AAPL', 'MSFT', 'GOOGL']  # Adjust the tickers as needed
+    
+    for ticker in tickers:
+        data = fetch_data_from_mongodb(ticker)
+        ts = preprocess_data(data)
+        train_var_model(ticker, ts)
+
+
+
+
+
 from flask import Flask, request, jsonify
 import pandas as pd
 import pickle

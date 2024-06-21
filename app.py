@@ -1,86 +1,263 @@
-from flask import Flask, request, jsonify
-import pandas as pd
-import numpy as np
-import pickle
-from pymongo import MongoClient
-from datetime import datetime, timedelta
-from statsmodels.tsa.vector_ar.var_model import VAR
+const mongoose = require('mongoose');
 
-app = Flask(__name__)
+const WatchlistSchema = new mongoose.Schema({
+    name: {
+        type: String,
+        required: true,
+    },
+    stocks: [
+        {
+            ticker: {
+                type: String,
+                required: true,
+            },
+            notes: String,
+        },
+    ],
+});
 
-# Load VAR models for each ticker
-def load_var_models():
-    tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN']  # Update with your tickers
-    models = {}
-    for ticker in tickers:
-        with open(f'models/{ticker}_var_model.pkl', 'rb') as f:
-            model = pickle.load(f)
-            models[ticker] = model
-    return models
+module.exports = mongoose.model('Watchlist', WatchlistSchema);
 
-# Function to fetch historical data from MongoDB up to a specified date
-def fetch_historical_data(ticker, end_date):
-    client = MongoClient('mongodb://localhost:27017/')
-    db = client['stockdata']
-    collection = db['daily_price']
-    cursor = collection.find({'Ticker': ticker, 'Date': {'$lte': end_date}})
-    df = pd.DataFrame(list(cursor))
-    client.close()
-    return df
 
-# Function to preprocess data for VAR prediction
-def preprocess_data_for_var(df):
-    df['Date'] = pd.to_datetime(df['Date'])
-    df.set_index('Date', inplace=True)
-    df.sort_index(inplace=True)
-    return df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]
 
-# Function to predict stock price for the next day using the VAR model
-def predict_stock_price(var_model, latest_data):
-    try:
-        # Preprocess latest data for VAR prediction
-        ts = preprocess_data_for_var(latest_data)
-        
-        # Make predictions using VAR model
-        lag_order = var_model.k_ar
-        forecast_input = ts.values[-lag_order:]
-        
-        # Predict for the next day
-        target_date = ts.index[-1] + timedelta(days=1)
-        forecast = var_model.forecast(forecast_input, steps=1)
-        
-        # Extracting the prediction for the next day's Close price
-        predicted_close = forecast[-1][3]  # Index 3 corresponds to 'Close' column
-        
-        return predicted_close, target_date
-    
-    except Exception as e:
-        print(f"Error predicting stock price: {str(e)}")
-        return None, None
 
-# Route for predicting stock price for the next day
-@app.route('/predict', methods=['POST'])
-def predict():
-    ticker = request.json['ticker']
-    
-    try:
-        # Fetch historical data up to 2024/06/17 from MongoDB
-        historical_data = fetch_historical_data(ticker, datetime(2024, 6, 17))
-        
-        # Load VAR model for the specified ticker
-        models = load_var_models()
-        var_model = models[ticker]
-        
-        # Predict stock price for the next day using VAR model
-        predicted_close, target_date = predict_stock_price(var_model, historical_data)
-        
-        if predicted_close is not None:
-            return jsonify({'ticker': ticker, 'predicted_close': predicted_close, 'target_date': target_date.strftime('%Y-%m-%d')})
-        else:
-            return jsonify({'error': 'Failed to predict stock price.'}), 500
-    
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
 
-if __name__ == '__main__':
-    app.run(debug=True)
+const express = require('express');
+const router = express.Router();
+const Watchlist = require('../models/Watchlist');
+
+// Create a new watchlist
+router.post('/create', async (req, res) => {
+    const { name } = req.body;
+    try {
+        const newWatchlist = new Watchlist({ name, stocks: [] });
+        const watchlist = await newWatchlist.save();
+        res.json(watchlist);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server error');
+    }
+});
+
+// Add a stock to a watchlist
+router.post('/add', async (req, res) => {
+    const { watchlistId, ticker } = req.body;
+    try {
+        const watchlist = await Watchlist.findById(watchlistId);
+        if (!watchlist) {
+            return res.status(404).json({ msg: 'Watchlist not found' });
+        }
+        watchlist.stocks.push({ ticker });
+        await watchlist.save();
+        res.json(watchlist);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server error');
+    }
+});
+
+// Remove a stock from a watchlist
+router.post('/remove', async (req, res) => {
+    const { watchlistId, ticker } = req.body;
+    try {
+        const watchlist = await Watchlist.findById(watchlistId);
+        if (!watchlist) {
+            return res.status(404).json({ msg: 'Watchlist not found' });
+        }
+        watchlist.stocks = watchlist.stocks.filter(stock => stock.ticker !== ticker);
+        await watchlist.save();
+        res.json(watchlist);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server error');
+    }
+});
+
+// Get all watchlists
+router.get('/', async (req, res) => {
+    try {
+        const watchlists = await Watchlist.find();
+        res.json(watchlists);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server error');
+    }
+});
+
+module.exports = router;
+
+
+
+
+
+
+
+const express = require('express');
+const mongoose = require('mongoose');
+const watchlistRoutes = require('./routes/watchlist');
+const dotenv = require('dotenv');
+
+dotenv.config();
+
+const app = express();
+
+// Connect to MongoDB
+mongoose.connect(process.env.MONGO_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+}).then(() => console.log('MongoDB connected...'))
+  .catch(err => console.error(err.message));
+
+// Middleware
+app.use(express.json());
+
+// Routes
+app.use('/api/watchlist', watchlistRoutes);
+
+const PORT = process.env.PORT || 5000;
+
+app.listen(PORT, () => console.log(`Server started on port ${PORT}`));
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+
+const Watchlist = () => {
+    const [watchlists, setWatchlists] = useState([]);
+    const [newWatchlistName, setNewWatchlistName] = useState('');
+    const [selectedWatchlistId, setSelectedWatchlistId] = useState(null);
+    const [newTicker, setNewTicker] = useState('');
+
+    useEffect(() => {
+        fetchWatchlists();
+    }, []);
+
+    const fetchWatchlists = async () => {
+        try {
+            const res = await axios.get('/api/watchlist');
+            setWatchlists(res.data);
+        } catch (err) {
+            console.error(err.message);
+        }
+    };
+
+    const createWatchlist = async () => {
+        try {
+            const res = await axios.post('/api/watchlist/create', { name: newWatchlistName });
+            setWatchlists([...watchlists, res.data]);
+            setNewWatchlistName('');
+        } catch (err) {
+            console.error(err.message);
+        }
+    };
+
+    const addStockToWatchlist = async (watchlistId) => {
+        try {
+            const res = await axios.post('/api/watchlist/add', { watchlistId, ticker: newTicker });
+            setWatchlists(watchlists.map(w => w._id === watchlistId ? res.data : w));
+            setNewTicker('');
+        } catch (err) {
+            console.error(err.message);
+        }
+    };
+
+    const removeStockFromWatchlist = async (watchlistId, ticker) => {
+        try {
+            const res = await axios.post('/api/watchlist/remove', { watchlistId, ticker });
+            setWatchlists(watchlists.map(w => w._id === watchlistId ? res.data : w));
+        } catch (err) {
+            console.error(err.message);
+        }
+    };
+
+    return (
+        <div>
+            <h1>Watchlists</h1>
+            <div>
+                <input
+                    type="text"
+                    value={newWatchlistName}
+                    onChange={(e) => setNewWatchlistName(e.target.value)}
+                    placeholder="New Watchlist Name"
+                />
+                <button onClick={createWatchlist}>Create Watchlist</button>
+            </div>
+            {watchlists.map((watchlist) => (
+                <div key={watchlist._id}>
+                    <h2>{watchlist.name}</h2>
+                    <ul>
+                        {watchlist.stocks.map((stock) => (
+                            <li key={stock.ticker}>
+                                {stock.ticker}
+                                <button onClick={() => removeStockFromWatchlist(watchlist._id, stock.ticker)}>Remove</button>
+                            </li>
+                        ))}
+                    </ul>
+                    <input
+                        type="text"
+                        value={newTicker}
+                        onChange={(e) => setNewTicker(e.target.value)}
+                        placeholder="Add Stock Ticker"
+                    />
+                    <button onClick={() => addStockToWatchlist(watchlist._id)}>Add Stock</button>
+                </div>
+            ))}
+        </div>
+    );
+};
+
+export default Watchlist;
+
+
+
+
+
+
+
+
+
+
+
+import React from 'react';
+import Watchlist from './components/Watchlist';
+
+function App() {
+    return (
+        <div className="App">
+            <Watchlist />
+        </div>
+    );
+}
+
+export default App;
+
+
+
+import React from 'react';
+import ReactDOM from 'react-dom';
+import './index.css';
+import App from './App';
+
+ReactDOM.render(
+    <React.StrictMode>
+        <App />
+    </React.StrictMode>,
+    document.getElementById('root')
+);
+
+
+
+

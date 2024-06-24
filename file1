@@ -1,218 +1,68 @@
-import pandas as pd
-from pymongo import MongoClient
-from statsmodels.tsa.vector_ar.var_model import VAR
-import pickle
-import os
+// server.js
 
-def fetch_data_from_mongodb(ticker):
-    """
-    Fetches daily price data from MongoDB for a given stock ticker.
-    
-    Parameters:
-    ticker (str): Ticker symbol of the stock
-    
-    Returns:
-    pandas.DataFrame: DataFrame containing historical price data
-    """
-    client = MongoClient('mongodb://localhost:27017/')
-    db = client['stockdata']
-    collection = db['daily_price']
-    cursor = collection.find({'Ticker': ticker})
-    df = pd.DataFrame(list(cursor))
-    client.close()
-    return df
+const express = require('express');
+const mongoose = require('mongoose');
+const bodyParser = require('body-parser');
+const cors = require('cors');
 
-def preprocess_data(df):
-    """
-    Preprocesses historical price data.
-    
-    Parameters:
-    df (pandas.DataFrame): DataFrame containing historical price data
-    
-    Returns:
-    pandas.DataFrame: Preprocessed DataFrame with Date as index and selected columns
-    """
-    df['Date'] = pd.to_datetime(df['Date'])
-    df.set_index('Date', inplace=True)
-    df.sort_index(inplace=True)
-    return df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]
+const app = express();
+const PORT = process.env.PORT || 5000;
 
-def train_model(ticker, df, lag_order=6):
-    """
-    Trains a VAR model on preprocessed historical price data and saves the model.
-    
-    Parameters:
-    ticker (str): Ticker symbol of the stock
-    df (pandas.DataFrame): Preprocessed DataFrame with Date as index and selected columns
-    lag_order (int): Lag order (p) to be used for VAR model (default: 7)
-    
-    Saves:
-    None
-    """
-    try:
-        model = VAR(df)
-        fitted_model = model.fit(lag_order)
-        os.makedirs('models', exist_ok=True)
-        with open(f'models/{ticker}_var_model.pkl', 'wb') as f:
-            pickle.dump(fitted_model, f)
-        print(f"VAR model trained and saved successfully for {ticker}.")
-    except Exception as e:
-        print(f"Error training VAR model for {ticker}: {str(e)}")
+// Middleware
+app.use(bodyParser.json());
+app.use(cors());
 
-if __name__ == '__main__':
-    tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN']
-    for ticker in tickers:
-        data = fetch_data_from_mongodb(ticker)
-        ts = preprocess_data(data)
-        train_model(ticker, ts, lag_order=10)
+// MongoDB connection
+mongoose.connect('mongodb://localhost:27017/stockdata', {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+    useCreateIndex: true,
+});
+const db = mongoose.connection;
+db.on('error', console.error.bind(console, 'MongoDB connection error:'));
+db.once('open', () => {
+    console.log('Connected to MongoDB');
+});
 
+// Define schema for daily price data
+const dailyPriceSchema = new mongoose.Schema({
+    Date: Date,
+    Open: Number,
+    High: Number,
+    Low: Number,
+    Close: Number,
+    AdjClose: Number,
+    Volume: Number,
+    Ticker: String,
+});
 
+const DailyPrice = mongoose.model('daily_price', dailyPriceSchema);
 
+// Routes
+app.post('/api/backtest', async (req, res) => {
+    const { ticker, startDate, endDate, initialCapital } = req.body;
 
+    try {
+        const historicalData = await DailyPrice.find({
+            Ticker: ticker,
+            Date: { $gte: new Date(startDate), $lte: new Date(endDate) },
+        }).sort({ Date: 1 });
 
-from flask import Flask, request, jsonify
-import pandas as pd
-import pickle
-from pymongo import MongoClient
-from datetime import datetime, timedelta
-from statsmodels.tsa.vector_ar.var_model import VAR
+        // Implement backtesting logic here
+        // Example: Calculate moving averages, simulate trades, etc.
 
-app = Flask(__name__)
+        // Dummy response for now
+        res.json({ message: 'Backtesting completed successfully', results: [] });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server error');
+    }
+});
 
-# Function to load VAR models from pickle files
-def load_var_models():
-    tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN']
-    models = {}
-    for ticker in tickers:
-        try:
-            with open(f'models/{ticker}_var_model.pkl', 'rb') as f:
-                model = pickle.load(f)
-                models[ticker] = model
-                print(f"Loaded VAR model for {ticker}.")
-        except Exception as e:
-            print(f"Error loading VAR model for {ticker}: {str(e)}")
-    return models
-
-# Function to fetch historical data from MongoDB
-def fetch_historical_data(ticker):
-    try:
-        client = MongoClient('mongodb://localhost:27017/')
-        db = client['stockdata']
-        collection = db['daily_price']
-        cursor = collection.find({'Ticker': ticker})
-        df = pd.DataFrame(list(cursor))
-        client.close()
-        return df
-    except Exception as e:
-        print(f"Error fetching data from MongoDB for {ticker}: {str(e)}")
-        return None
-
-# Function to preprocess data for VAR model prediction
-def preprocess_data_for_var(df):
-    try:
-        df['Date'] = pd.to_datetime(df['Date'])
-        df.set_index('Date', inplace=True)
-        df.sort_index(inplace=True)
-        return df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]
-    except Exception as e:
-        print(f"Error preprocessing data for VAR model: {str(e)}")
-        return None
-
-# Function to predict stock prices using a VAR model
-def predict_stock_prices(var_model, latest_data, days_ahead):
-    try:
-        ts = preprocess_data_for_var(latest_data)
-        if ts is None:
-            return None
-        
-        lag_order = var_model.k_ar
-        forecast_input = ts.values[-lag_order:]
-
-        forecast = var_model.forecast(forecast_input, steps=days_ahead)
-        predicted_closes = forecast[:, 3]
-
-        target_dates = [(datetime.now() + timedelta(days=i)).date() for i in range(1, days_ahead + 1)]
-        predictions = {target_dates[i].strftime('%Y-%m-%d'): predicted_closes[i] for i in range(days_ahead)}
-        return predictions
-    
-    except Exception as e:
-        print(f"Error predicting stock prices using VAR model: {str(e)}")
-        return None
-
-# Load VAR models on application startup
-models = load_var_models()
-
-@app.route('/predict/current_day', methods=['POST'])
-def predict_current_day():
-    ticker = request.json['ticker']
-    
-    try:
-        if ticker not in models:
-            return jsonify({'error': f'Model for {ticker} not found.'}), 404
-        
-        historical_data = fetch_historical_data(ticker)
-        if historical_data is None:
-            return jsonify({'error': f'Failed to fetch historical data for {ticker}.'}), 500
-        
-        var_model = models[ticker]
-        predictions = predict_stock_prices(var_model, historical_data, days_ahead=1)
-        
-        if predictions is not None:
-            return jsonify({'ticker': ticker, 'prediction': predictions})
-        else:
-            return jsonify({'error': 'Failed to predict stock price.'}), 500
-    
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/predict/next_week', methods=['POST'])
-def predict_next_week():
-    ticker = request.json['ticker']
-    
-    try:
-        if ticker not in models:
-            return jsonify({'error': f'Model for {ticker} not found.'}), 404
-        
-        historical_data = fetch_historical_data(ticker)
-        if historical_data is None:
-            return jsonify({'error': f'Failed to fetch historical data for {ticker}.'}), 500
-        
-        var_model = models[ticker]
-        predictions = predict_stock_prices(var_model, historical_data, days_ahead=7)
-        
-        if predictions is not None:
-            return jsonify({'ticker': ticker, 'predictions': predictions})
-        else:
-            return jsonify({'error': 'Failed to predict stock prices.'}), 500
-    
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/predict/next_month', methods=['POST'])
-def predict_next_month():
-    ticker = request.json['ticker']
-    
-    try:
-        if ticker not in models:
-            return jsonify({'error': f'Model for {ticker} not found.'}), 404
-        
-        historical_data = fetch_historical_data(ticker)
-        if historical_data is None:
-            return jsonify({'error': f'Failed to fetch historical data for {ticker}.'}), 500
-        
-        var_model = models[ticker]
-        predictions = predict_stock_prices(var_model, historical_data, days_ahead=30)
-        
-        if predictions is not None:
-            return jsonify({'ticker': ticker, 'predictions': predictions})
-        else:
-            return jsonify({'error': 'Failed to predict stock prices.'}), 500
-    
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-if __name__ == '__main__':
-    app.run(debug=True)
+// Start server
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
 
 
 
@@ -220,68 +70,95 @@ if __name__ == '__main__':
 
 
 
-import pandas as pd
-from pymongo import MongoClient
-from statsmodels.tsa.vector_ar.var_model import VAR
-import pickle
-import os
 
-def fetch_data_from_mongodb(ticker):
-    client = MongoClient('mongodb://localhost:27017/')
-    db = client['stockdata']
-    collection = db['daily_price']
-    cursor = collection.find({'Ticker': ticker})
-    df = pd.DataFrame(list(cursor))
-    client.close()
-    return df
 
-def preprocess_data(df):
-    df['Date'] = pd.to_datetime(df['Date'])
-    df.set_index('Date', inplace=True)
-    df.sort_index(inplace=True)
-    return df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]
+// src/components/BacktestForm.js
 
-def select_best_lag_order(data):
-    best_aic = float("inf")
-    best_lag_order = 1
-    
-    for p in range(1, 11):  # Iterate over lag orders from 1 to 10
-        model = VAR(data)
-        try:
-            results = model.fit(maxlags=p, ic='aic', cov_type='robust')
-            if results.aic < best_aic:
-                best_aic = results.aic
-                best_lag_order = p
-        except Exception as e:
-            print(f"Issue with lag order {p}: {str(e)}")
-            continue
-    
-    print(f"Best lag order selected: {best_lag_order} with AIC {best_aic}")
-    return best_lag_order
+import React, { useState } from 'react';
+import axios from 'axios';
 
-def train_model(ticker, df):
-    try:
-        # Selecting the best lag order using AIC and robust covariance estimation
-        lag_order = select_best_lag_order(df)
-        
-        # Train VAR model with the selected lag order and robust covariance
-        model = VAR(df)
-        fitted_model = model.fit(maxlags=lag_order, cov_type='robust')
-        
-        # Save the trained model to disk
-        os.makedirs('models', exist_ok=True)
-        with open(f'models/{ticker}_var_model.pkl', 'wb') as f:
-            pickle.dump(fitted_model, f)
-        
-        print(f"VAR model trained and saved successfully for {ticker}.")
-    
-    except Exception as e:
-        print(f"Error training VAR model for {ticker}: {str(e)}")
+const BacktestForm = () => {
+    const [ticker, setTicker] = useState('');
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
+    const [initialCapital, setInitialCapital] = useState(10000);
+    const [results, setResults] = useState([]);
 
-if __name__ == '__main__':
-    tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN']
-    for ticker in tickers:
-        data = fetch_data_from_mongodb(ticker)
-        ts = preprocess_data(data)
-        train_model(ticker, ts)
-pip install statsmodels==0.13.0
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+
+        try {
+            const res = await axios.post('http://localhost:5000/api/backtest', {
+                ticker,
+                startDate,
+                endDate,
+                initialCapital,
+            });
+            setResults(res.data.results);
+        } catch (err) {
+            console.error(err.message);
+        }
+    };
+
+    return (
+        <div>
+            <h1>Stock Backtesting</h1>
+            <form onSubmit={handleSubmit}>
+                <input type="text" placeholder="Ticker Symbol" value={ticker} onChange={(e) => setTicker(e.target.value)} required />
+                <input type="date" placeholder="Start Date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
+                <input type="date" placeholder="End Date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
+                <input type="number" placeholder="Initial Capital" value={initialCapital} onChange={(e) => setInitialCapital(e.target.value)} required />
+                <button type="submit">Backtest</button>
+            </form>
+            <h2>Backtesting Results</h2>
+            <ul>
+                {results.map((result, index) => (
+                    <li key={index}>
+                        <p>Date: {new Date(result.date).toLocaleDateString()}</p>
+                        <p>Capital: ${result.capital.toFixed(2)}</p>
+                        <p>Shares: {result.shares}</p>
+                        <p>Closing Price: ${result.close.toFixed(2)}</p>
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
+};
+
+export default BacktestForm;
+
+
+
+
+
+
+
+
+
+
+
+// src/App.js
+
+import React from 'react';
+import './App.css';
+import BacktestForm from './components/BacktestForm';
+
+function App() {
+    return (
+        <div className="App">
+            <header className="App-header">
+                <BacktestForm />
+            </header>
+        </div>
+    );
+}
+
+export default App;
+
+
+
+
+
+
+
+

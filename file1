@@ -1,3 +1,147 @@
+from flask import Flask, request, jsonify
+import pandas as pd
+import pickle
+from pymongo import MongoClient
+from datetime import datetime, timedelta
+from statsmodels.tsa.vector_ar.var_model import VAR
+
+app = Flask(__name__)
+
+# Function to load VAR models from pickle files
+def load_var_models():
+    tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN']
+    models = {}
+    for ticker in tickers:
+        try:
+            with open(f'models/{ticker}_var_model.pkl', 'rb') as f:
+                model = pickle.load(f)
+                models[ticker] = model
+                print(f"Loaded VAR model for {ticker}.")
+        except Exception as e:
+            print(f"Error loading VAR model for {ticker}: {str(e)}")
+    return models
+
+# Function to fetch historical data from MongoDB
+def fetch_historical_data(ticker):
+    try:
+        client = MongoClient('mongodb://localhost:27017/')
+        db = client['stockdata']
+        collection = db['daily_price']
+        cursor = collection.find({'Ticker': ticker})
+        df = pd.DataFrame(list(cursor))
+        client.close()
+        return df
+    except Exception as e:
+        print(f"Error fetching data from MongoDB for {ticker}: {str(e)}")
+        return None
+
+# Function to preprocess data for VAR model prediction
+def preprocess_data_for_var(df):
+    try:
+        df['Date'] = pd.to_datetime(df['Date'])
+        df.set_index('Date', inplace=True)
+        df.sort_index(inplace=True)
+        return df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]
+    except Exception as e:
+        print(f"Error preprocessing data for VAR model: {str(e)}")
+        return None
+
+# Function to predict stock prices using a VAR model
+def predict_stock_prices(var_model, latest_data, start_date, end_date):
+    try:
+        ts = preprocess_data_for_var(latest_data)
+        if ts is None:
+            return None
+
+        lag_order = var_model.k_ar
+        forecast_input = ts.values[-lag_order:]
+
+        total_days = (end_date - start_date).days + 1
+        forecast = var_model.forecast(forecast_input, steps=total_days)
+        predicted_closes = forecast[:, 3]
+
+        target_dates = [(start_date + timedelta(days=i)).date() for i in range(total_days)]
+        predictions = {target_dates[i].strftime('%Y-%m-%d'): predicted_closes[i] for i in range(total_days)}
+
+        return predictions
+    
+    except Exception as e:
+        print(f"Error predicting stock prices using VAR model: {str(e)}")
+        return None
+
+# Function to save predictions to CSV
+def save_predictions_to_csv(predictions, filename):
+    df = pd.DataFrame(predictions.items(), columns=['Date', 'Close'])
+    df.to_csv(filename, index=False)
+
+# Function to load actual values from CSV
+def load_actual_values(filename):
+    try:
+        return pd.read_csv(filename, parse_dates=['Date'])
+    except Exception as e:
+        print(f"Error loading actual values from CSV: {str(e)}")
+        return None
+
+# Function to compare predictions with actual values
+def compare_predictions_with_actuals(predicted_df, actual_df):
+    merged_df = pd.merge(predicted_df, actual_df, on='Date', suffixes=('_Predicted', '_Actual'))
+    return merged_df
+
+# Load VAR models on application startup
+models = load_var_models()
+
+@app.route('/predict', methods=['POST'])
+def predict():
+    data = request.json
+    ticker = data['ticker']
+    start_date = datetime.strptime(data['start_date'], '%Y-%m-%d').date()
+    end_date = datetime.strptime(data['end_date'], '%Y-%m-%d').date()
+    
+    try:
+        if ticker not in models:
+            return jsonify({'error': f'Model for {ticker} not found.'}), 404
+        
+        historical_data = fetch_historical_data(ticker)
+        if historical_data is None:
+            return jsonify({'error': f'Failed to fetch historical data for {ticker}.'}), 500
+        
+        var_model = models[ticker]
+        predictions = predict_stock_prices(var_model, historical_data, start_date, end_date)
+        
+        if predictions is not None:
+            save_predictions_to_csv(predictions, 'predicted_values.csv')
+            predicted_df = pd.DataFrame(predictions.items(), columns=['Date', 'Close'])
+            actual_df = load_actual_values('actual_values.csv')
+            
+            if actual_df is not None:
+                comparison_df = compare_predictions_with_actuals(predicted_df, actual_df)
+                accuracy = (comparison_df['Close_Predicted'] - comparison_df['Close_Actual']).abs().mean()
+                return jsonify({
+                    'ticker': ticker,
+                    'predictions': predictions,
+                    'accuracy': accuracy
+                })
+            else:
+                return jsonify({'error': 'Failed to load actual values.'}), 500
+        
+        else:
+            return jsonify({'error': 'Failed to predict stock prices.'}), 500
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
+
+
+
+
+
+
+
+
+
 // server.js
 
 const express = require('express');

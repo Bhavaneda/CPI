@@ -36,6 +36,161 @@ def fetch_historical_data(ticker):
 # Function to convert date string to datetime
 def convert_to_datetime(date_str):
     if isinstance(date_str, datetime):
+        return date_str.date()
+    try:
+        return parse(date_str).date()
+    except Exception as e:
+        print(f"Error parsing date string '{date_str}': {str(e)}")
+        return None
+
+# Function to preprocess data for VAR model prediction
+def preprocess_data_for_var(df):
+    try:
+        df['Date'] = df['Date'].apply(convert_to_datetime)
+        df.set_index('Date', inplace=True)
+        df.sort_index(inplace=True)
+        return df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]
+    except Exception as e:
+        print(f"Error preprocessing data for VAR model: {str(e)}")
+        return None
+
+# Function to predict stock prices using a VAR model
+def predict_stock_prices(var_model, latest_data, start_date, end_date):
+    try:
+        ts = preprocess_data_for_var(latest_data)
+        if ts is None:
+            return None
+
+        lag_order = var_model.k_ar
+        forecast_input = ts.values[-lag_order:]
+
+        days_ahead = (end_date - start_date).days + 1
+        forecast = var_model.forecast(forecast_input, steps=days_ahead)
+        predicted_closes = forecast[:, 3]
+
+        target_dates = [start_date + timedelta(days=i) for i in range(days_ahead)]
+        predictions = {'Date': target_dates, 'Close': predicted_closes}
+        return predictions
+    
+    except Exception as e:
+        print(f"Error predicting stock prices using VAR model: {str(e)}")
+        return None
+
+# Load actual values from CSV
+def load_actual_values(filename):
+    try:
+        actual_df = pd.read_csv(filename)
+        actual_df['Date'] = actual_df['Date'].apply(convert_to_datetime)
+        actual_df.set_index(['Date', 'Ticker'], inplace=True)
+        return actual_df
+    except Exception as e:
+        print(f"Error loading actual values from CSV: {str(e)}")
+        return None
+
+# Function to compare predictions with actual values
+def compare_predictions_with_actuals(predicted_df, actual_df):
+    try:
+        predicted_df['Date'] = predicted_df['Date'].apply(convert_to_datetime)
+        predicted_df.set_index(['Date', 'Ticker'], inplace=True)
+        merged_df = pd.merge(predicted_df, actual_df, left_index=True, right_index=True, suffixes=('_Predicted', '_Actual'))
+        return merged_df
+    except Exception as e:
+        print(f"Error comparing predictions with actual values: {str(e)}")
+        return None
+
+if __name__ == '__main__':
+    # Example usage:
+    tickers = ['AAPL', 'MSFT']
+    start_date = datetime.strptime('2024-06-01', '%Y-%m-%d').date()
+    end_date = datetime.strptime('2024-06-30', '%Y-%m-%d').date()
+
+    # Load VAR models
+    models = load_var_models()
+
+    # Initialize empty DataFrame for predictions
+    all_predictions = pd.DataFrame()
+
+    # Loop through each ticker to predict and compare
+    for ticker in tickers:
+        if ticker in models:
+            var_model = models[ticker]
+            historical_data = fetch_historical_data(ticker)
+            
+            if historical_data is not None:
+                predictions = predict_stock_prices(var_model, historical_data, start_date, end_date)
+                if predictions is not None:
+                    predicted_df = pd.DataFrame(predictions)
+                    predicted_df['Ticker'] = ticker
+                    all_predictions = pd.concat([all_predictions, predicted_df])
+
+    # Save all predictions to CSV
+    all_predictions.to_csv('predicted_values.csv', index=False)
+    print("Predictions saved to predicted_values.csv")
+
+    # Load actual values
+    actual_df = load_actual_values('actual_values.csv')
+
+    if actual_df is not None:
+        # Compare predictions with actual values
+        comparison_df = compare_predictions_with_actuals(all_predictions, actual_df)
+        if comparison_df is not None:
+            print("Comparison with actual values:")
+            print(comparison_df)
+
+            # Calculate accuracy or other metrics if needed
+            accuracy = (comparison_df['Close_Predicted'] - comparison_df['Close_Actual']).abs().mean()
+            print(f"Mean Absolute Error: {accuracy}")
+        else:
+            print("Failed to compare predictions with actual values.")
+    else:
+        print("Failed to load actual values.")
+
+
+
+
+
+
+
+
+
+import pandas as pd
+import pickle
+from pymongo import MongoClient
+from datetime import datetime, timedelta
+from dateutil.parser import parse
+from statsmodels.tsa.vector_ar.var_model import VAR
+
+# Function to load VAR models from pickle files
+def load_var_models():
+    tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN']
+    models = {}
+    for ticker in tickers:
+        try:
+            with open(f'models/{ticker}_var_model.pkl', 'rb') as f:
+                model = pickle.load(f)
+                models[ticker] = model
+                print(f"Loaded VAR model for {ticker}.")
+        except Exception as e:
+            print(f"Error loading VAR model for {ticker}: {str(e)}")
+    return models
+
+# Function to fetch historical data from MongoDB
+def fetch_historical_data(ticker):
+    try:
+        client = MongoClient('mongodb://localhost:27017/')
+        db = client['stockdata']
+        collection = db['daily_price']
+        cursor = collection.find({'Ticker': ticker})
+        df = pd.DataFrame(list(cursor))
+        client.close()
+        return df
+    except Exception as e:
+        print(f"Error fetching data from MongoDB for {ticker}: {str(e)}")
+        return None
+
+# Function to convert date string to datetime
+def convert_to_datetime(date_str):
+    if isinstance(date_str, datetime):
         return date_str
     try:
         return parse(date_str).date()

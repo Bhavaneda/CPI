@@ -1,15 +1,11 @@
-from flask import Flask, request, jsonify
 import pandas as pd
 import pickle
 from pymongo import MongoClient
 from datetime import datetime, timedelta
 from statsmodels.tsa.vector_ar.var_model import VAR
 
-app = Flask(__name__)
-
 # Function to load VAR models from pickle files
-def load_var_models():
-    tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN']
+def load_var_models(tickers):
     models = {}
     for ticker in tickers:
         try:
@@ -21,7 +17,7 @@ def load_var_models():
             print(f"Error loading VAR model for {ticker}: {str(e)}")
     return models
 
-# Function to fetch historical data from MongoDB
+# Function to fetch historical data from MongoDB for a specific ticker
 def fetch_historical_data(ticker):
     try:
         client = MongoClient('mongodb://localhost:27017/')
@@ -61,7 +57,11 @@ def predict_stock_prices(var_model, latest_data, start_date, end_date):
         predicted_closes = forecast[:, 3]
 
         target_dates = [(start_date + timedelta(days=i)).date() for i in range(total_days)]
-        predictions = {target_dates[i].strftime('%Y-%m-%d'): predicted_closes[i] for i in range(total_days)}
+        predictions = pd.DataFrame({
+            'Date': target_dates,
+            'Close': predicted_closes,
+            'Ticker': latest_data['Ticker'].iloc[0]  # Assuming the ticker is constant for the historical data
+        })
 
         return predictions
     
@@ -71,8 +71,7 @@ def predict_stock_prices(var_model, latest_data, start_date, end_date):
 
 # Function to save predictions to CSV
 def save_predictions_to_csv(predictions, filename):
-    df = pd.DataFrame(predictions.items(), columns=['Date', 'Close'])
-    df.to_csv(filename, index=False)
+    predictions.to_csv(filename, index=False)
 
 # Function to load actual values from CSV
 def load_actual_values(filename):
@@ -84,225 +83,61 @@ def load_actual_values(filename):
 
 # Function to compare predictions with actual values
 def compare_predictions_with_actuals(predicted_df, actual_df):
-    merged_df = pd.merge(predicted_df, actual_df, on='Date', suffixes=('_Predicted', '_Actual'))
+    merged_df = pd.merge(predicted_df, actual_df, on=['Date', 'Ticker'], suffixes=('_Predicted', '_Actual'))
     return merged_df
 
-# Load VAR models on application startup
-models = load_var_models()
-
-@app.route('/predict', methods=['POST'])
-def predict():
-    data = request.json
-    ticker = data['ticker']
-    start_date = datetime.strptime(data['start_date'], '%Y-%m-%d').date()
-    end_date = datetime.strptime(data['end_date'], '%Y-%m-%d').date()
-    
-    try:
-        if ticker not in models:
-            return jsonify({'error': f'Model for {ticker} not found.'}), 404
-        
-        historical_data = fetch_historical_data(ticker)
-        if historical_data is None:
-            return jsonify({'error': f'Failed to fetch historical data for {ticker}.'}), 500
-        
-        var_model = models[ticker]
-        predictions = predict_stock_prices(var_model, historical_data, start_date, end_date)
-        
-        if predictions is not None:
-            save_predictions_to_csv(predictions, 'predicted_values.csv')
-            predicted_df = pd.DataFrame(predictions.items(), columns=['Date', 'Close'])
-            actual_df = load_actual_values('actual_values.csv')
-            
-            if actual_df is not None:
-                comparison_df = compare_predictions_with_actuals(predicted_df, actual_df)
-                accuracy = (comparison_df['Close_Predicted'] - comparison_df['Close_Actual']).abs().mean()
-                return jsonify({
-                    'ticker': ticker,
-                    'predictions': predictions,
-                    'accuracy': accuracy
-                })
-            else:
-                return jsonify({'error': 'Failed to load actual values.'}), 500
-        
-        else:
-            return jsonify({'error': 'Failed to predict stock prices.'}), 500
-    
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
 if __name__ == '__main__':
-    app.run(debug=True)
+    # Example tickers and date range
+    tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN']  # Example tickers
+    start_date = datetime(2024, 1, 1).date()  # Example start date
+    end_date = datetime(2024, 1, 31).date()  # Example end date
 
+    # Load VAR models for all tickers
+    models = load_var_models(tickers)
 
+    try:
+        if not models:
+            raise ValueError("No models loaded.")
 
+        for ticker in tickers:
+            if ticker not in models:
+                print(f"Model for {ticker} not found. Skipping...")
+                continue
 
+            # Fetch historical data for the ticker
+            historical_data = fetch_historical_data(ticker)
+            if historical_data is None:
+                print(f"Failed to fetch historical data for {ticker}. Skipping...")
+                continue
 
+            # Select appropriate VAR model for the ticker
+            var_model = models[ticker]
 
+            # Predict stock prices for the ticker and date range
+            predictions = predict_stock_prices(var_model, historical_data, start_date, end_date)
 
+            if predictions is not None:
+                # Save predictions to CSV for the ticker
+                save_predictions_to_csv(predictions, f'predicted_values_{ticker}.csv')
+                print(f"Predictions saved to predicted_values_{ticker}.csv")
 
+                # Load actual values from CSV for comparison
+                actual_df = load_actual_values('actual_values.csv')
 
+                if actual_df is not None:
+                    # Compare predictions with actual values for the ticker
+                    comparison_df = compare_predictions_with_actuals(predictions, actual_df)
+                    print(f"Comparison with actual values for {ticker}:")
+                    print(comparison_df)
 
-// server.js
+                    # Calculate accuracy or other metrics if needed
+                    accuracy = (comparison_df['Close_Predicted'] - comparison_df['Close_Actual']).abs().mean()
+                    print(f"Mean Absolute Error for {ticker}: {accuracy}")
+                else:
+                    print(f"Failed to load actual values for {ticker}.")
 
-const express = require('express');
-const mongoose = require('mongoose');
-const bodyParser = require('body-parser');
-const cors = require('cors');
+            else:
+                print(f"Failed to predict stock prices for {ticker}.")
 
-const app = express();
-const PORT = process.env.PORT || 5000;
-
-// Middleware
-app.use(bodyParser.json());
-app.use(cors());
-
-// MongoDB connection
-mongoose.connect('mongodb://localhost:27017/stockdata', {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-    useCreateIndex: true,
-});
-const db = mongoose.connection;
-db.on('error', console.error.bind(console, 'MongoDB connection error:'));
-db.once('open', () => {
-    console.log('Connected to MongoDB');
-});
-
-// Define schema for daily price data
-const dailyPriceSchema = new mongoose.Schema({
-    Date: Date,
-    Open: Number,
-    High: Number,
-    Low: Number,
-    Close: Number,
-    AdjClose: Number,
-    Volume: Number,
-    Ticker: String,
-});
-
-const DailyPrice = mongoose.model('daily_price', dailyPriceSchema);
-
-// Routes
-app.post('/api/backtest', async (req, res) => {
-    const { ticker, startDate, endDate, initialCapital } = req.body;
-
-    try {
-        const historicalData = await DailyPrice.find({
-            Ticker: ticker,
-            Date: { $gte: new Date(startDate), $lte: new Date(endDate) },
-        }).sort({ Date: 1 });
-
-        // Implement backtesting logic here
-        // Example: Calculate moving averages, simulate trades, etc.
-
-        // Dummy response for now
-        res.json({ message: 'Backtesting completed successfully', results: [] });
-    } catch (err) {
-        console.error(err.message);
-        res.status(500).send('Server error');
-    }
-});
-
-// Start server
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
-
-
-
-
-
-
-
-
-
-// src/components/BacktestForm.js
-
-import React, { useState } from 'react';
-import axios from 'axios';
-
-const BacktestForm = () => {
-    const [ticker, setTicker] = useState('');
-    const [startDate, setStartDate] = useState('');
-    const [endDate, setEndDate] = useState('');
-    const [initialCapital, setInitialCapital] = useState(10000);
-    const [results, setResults] = useState([]);
-
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-
-        try {
-            const res = await axios.post('http://localhost:5000/api/backtest', {
-                ticker,
-                startDate,
-                endDate,
-                initialCapital,
-            });
-            setResults(res.data.results);
-        } catch (err) {
-            console.error(err.message);
-        }
-    };
-
-    return (
-        <div>
-            <h1>Stock Backtesting</h1>
-            <form onSubmit={handleSubmit}>
-                <input type="text" placeholder="Ticker Symbol" value={ticker} onChange={(e) => setTicker(e.target.value)} required />
-                <input type="date" placeholder="Start Date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
-                <input type="date" placeholder="End Date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
-                <input type="number" placeholder="Initial Capital" value={initialCapital} onChange={(e) => setInitialCapital(e.target.value)} required />
-                <button type="submit">Backtest</button>
-            </form>
-            <h2>Backtesting Results</h2>
-            <ul>
-                {results.map((result, index) => (
-                    <li key={index}>
-                        <p>Date: {new Date(result.date).toLocaleDateString()}</p>
-                        <p>Capital: ${result.capital.toFixed(2)}</p>
-                        <p>Shares: {result.shares}</p>
-                        <p>Closing Price: ${result.close.toFixed(2)}</p>
-                    </li>
-                ))}
-            </ul>
-        </div>
-    );
-};
-
-export default BacktestForm;
-
-
-
-
-
-
-
-
-
-
-
-// src/App.js
-
-import React from 'react';
-import './App.css';
-import BacktestForm from './components/BacktestForm';
-
-function App() {
-    return (
-        <div className="App">
-            <header className="App-header">
-                <BacktestForm />
-            </header>
-        </div>
-    );
-}
-
-export default App;
-
-
-
-
-
-
-
-
+    except Exception as e:
+        print(f"Error: {str(e)}")

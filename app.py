@@ -427,3 +427,81 @@ weight_arima = plp.LpVariable("weight_arima", lowBound = 0, upBound=0.6)
 
 for i in range(len(hist_data)):
     preds.append(lstm_pred[i]*weight_lstm + mcmc_pred[i]*weight_mcmc + arima_pred[i]*weight_arima)
+
+
+
+
+
+
+
+
+
+
+import pandas as pd
+import itertools
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+from sklearn.metrics import mean_squared_error
+
+# Function to fetch data from MongoDB
+def fetch_data_from_mongodb(ticker):
+    client = MongoClient('mongodb://localhost:27017/')
+    db = client['stockdata']
+    collection = db['daily_price']
+    cursor = collection.find({'Ticker': ticker})
+    df = pd.DataFrame(list(cursor))
+    client.close()
+    return df
+
+# Function to preprocess data
+def preprocess_data(df):
+    df['Date'] = pd.to_datetime(df['Date'])
+    df.set_index('Date', inplace=True)
+    df.sort_index(inplace=True)
+    return df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]
+
+# Function to perform grid search for SARIMA parameters
+def sarima_grid_search(ts, p_values, d_values, q_values, P_values, D_values, Q_values, S_values):
+    best_score, best_params = float('inf'), None
+    for p, d, q, P, D, Q, S in itertools.product(p_values, d_values, q_values, P_values, D_values, Q_values, S_values):
+        try:
+            model = SARIMAX(ts, order=(p, d, q), seasonal_order=(P, D, Q, S), enforce_stationarity=False)
+            results = model.fit(disp=False)
+            if results.aic < best_score:
+                best_score, best_params = results.aic, (p, d, q, P, D, Q, S)
+        except Exception as e:
+            continue
+    return best_params
+
+# Function to train SARIMA model
+def train_sarima_model(ts, order, seasonal_order):
+    model = SARIMAX(ts, order=order, seasonal_order=seasonal_order, enforce_stationarity=False)
+    fitted_model = model.fit(disp=False)
+    return fitted_model
+
+if __name__ == '__main__':
+    ticker = 'AAPL'
+    data = fetch_data_from_mongodb(ticker)
+    ts = preprocess_data(data)['Close']
+
+    # Define parameter ranges for grid search
+    p_values = range(0, 3)
+    d_values = range(0, 2)
+    q_values = range(0, 3)
+    P_values = range(0, 2)
+    D_values = range(0, 2)
+    Q_values = range(0, 2)
+    S_values = [7]  # Weekly seasonality
+
+    best_params = sarima_grid_search(ts, p_values, d_values, q_values, P_values, D_values, Q_values, S_values)
+    print(f'Best parameters: {best_params}')
+
+    # Train the SARIMA model with the best parameters
+    if best_params:
+        order = best_params[:3]
+        seasonal_order = best_params[3:]
+        fitted_model = train_sarima_model(ts, order, seasonal_order)
+        print(f"Trained SARIMA model with order: {order} and seasonal order: {seasonal_order}")
+        # Save the model if needed
+        os.makedirs('models', exist_ok=True)
+        with open(f'models/{ticker}_sarima_model.pkl', 'wb') as f:
+            pickle.dump(fitted_model, f)

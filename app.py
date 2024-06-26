@@ -505,3 +505,115 @@ if __name__ == '__main__':
         os.makedirs('models', exist_ok=True)
         with open(f'models/{ticker}_sarima_model.pkl', 'wb') as f:
             pickle.dump(fitted_model, f)
+
+
+
+
+
+
+
+
+
+
+
+
+import pandas as pd
+from datetime import datetime
+from pymongo import MongoClient
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+from statsmodels.tsa.vector_ar.var_model import VAR
+from sklearn.metrics import mean_squared_error
+import numpy as np
+import os
+
+# MongoDB connection setup
+client = MongoClient('mongodb://localhost:27017/')
+db = client['stockdata']
+collection = db['daily_price']
+
+def fetch_data_from_mongodb(ticker):
+    cursor = collection.find({'Ticker': ticker})
+    df = pd.DataFrame(list(cursor))
+    return df
+
+def preprocess_data(df):
+    df['Date'] = pd.to_datetime(df['Date'], format='%Y-%m-%d')
+    df.set_index('Date', inplace=True)
+    df.sort_index(inplace=True)
+    df.index = pd.DatetimeIndex(df.index.values, freq=df.index.inferred_freq)
+    return df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]
+
+def train_sarima_model(train_data, order=(1, 1, 1), seasonal_order=(1, 1, 1, 7)):
+    sarima_model = SARIMAX(train_data['Close'], order=order, seasonal_order=seasonal_order, enforce_stationarity=False)
+    sarima_fit = sarima_model.fit(disp=False)
+    return sarima_fit
+
+def train_var_model(train_data, lag_order=7):
+    var_model = VAR(train_data)
+    var_fit = var_model.fit(lag_order)
+    return var_fit
+
+def walk_forward_validation(ts, order, seasonal_order, var_lag_order, n_test):
+    sarima_predictions = []
+    var_predictions = []
+
+    for i in range(n_test):
+        train = ts[:-(n_test - i)]
+        test = ts[-(n_test - i):-(n_test - i) + 1]
+
+        sarima_model = train_sarima_model(train, order, seasonal_order)
+        var_model = train_var_model(train, var_lag_order)
+
+        sarima_forecast = sarima_model.forecast(steps=1)[0]
+        var_forecast = var_model.forecast(train.values, steps=1)[0][3]
+
+        sarima_predictions.append(sarima_forecast)
+        var_predictions.append(var_forecast)
+
+    actual = ts[-n_test:]['Close']
+    sarima_rmse = mean_squared_error(actual, sarima_predictions, squared=False)
+    var_rmse = mean_squared_error(actual, var_predictions, squared=False)
+
+    return sarima_rmse, var_rmse
+
+def validate_models(ticker, sarima_order=(1, 1, 1), sarima_seasonal_order=(1, 1, 1, 7), var_lag_order=7, n_test=30):
+    try:
+        df = fetch_data_from_mongodb(ticker)
+        ts = preprocess_data(df)
+
+        sarima_rmse, var_rmse = walk_forward_validation(ts, sarima_order, sarima_seasonal_order, var_lag_order, n_test)
+
+        print(f"Validation results for {ticker}:")
+        print(f"SARIMA RMSE: {sarima_rmse}")
+        print(f"VAR RMSE: {var_rmse}")
+
+        return sarima_rmse, var_rmse
+
+    except Exception as e:
+        print(f"Error validating models for {ticker}: {str(e)}")
+        return None, None
+
+if __name__ == '__main__':
+    tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN']
+    n_test = 30  # Number of test observations
+
+    sarima_rmses = []
+    var_rmses = []
+
+    for ticker in tickers:
+        print(f"Validating models for {ticker}...")
+        sarima_rmse, var_rmse = validate_models(ticker, n_test=n_test)
+        if sarima_rmse is not None and var_rmse is not None:
+            sarima_rmses.append(sarima_rmse)
+            var_rmses.append(var_rmse)
+        print()
+
+    avg_sarima_rmse = np.mean(sarima_rmses)
+    avg_var_rmse = np.mean(var_rmses)
+
+    print(f"Average SARIMA RMSE: {avg_sarima_rmse}")
+    print(f"Average VAR RMSE: {avg_var_rmse}")
+
+    # Close MongoDB client connection at the end
+    client.close()
+

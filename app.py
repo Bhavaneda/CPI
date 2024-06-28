@@ -1,5 +1,114 @@
 import pandas as pd
 from pymongo import MongoClient
+from statsmodels.tsa.vector_ar.var_model import VAR
+import pickle
+import os
+
+def fetch_data_from_mongodb(ticker):
+    """
+    Fetch daily price data for a given ticker from MongoDB.
+    Assumes MongoDB connection is running locally on default port.
+    """
+    client = MongoClient('mongodb://localhost:27017/')
+    db = client['stockdata']
+    collection = db['daily_price']
+    cursor = collection.find({'Ticker': ticker})
+    df = pd.DataFrame(list(cursor))
+    client.close()
+    return df
+
+def preprocess_data(df):
+    """
+    Preprocess DataFrame: Convert Date column to datetime, set as index, and sort by Date.
+    Select relevant columns: Open, High, Low, Close, Adj Close, Volume.
+    """
+    df['Date'] = pd.to_datetime(df['Date'])
+    df.set_index('Date', inplace=True)
+    df.sort_index(inplace=True)
+    return df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]
+
+def calculate_information_criteria(data, max_lag=10, ic='aic'):
+    """
+    Calculate information criteria (AIC, BIC, HQIC) for VAR models with different lag orders.
+
+    Parameters:
+    - data: DataFrame containing time series data with columns representing variables.
+    - max_lag: Maximum lag order to consider.
+    - ic: Information criterion to use ('aic', 'bic', 'hqic').
+
+    Returns:
+    - Dictionary containing the calculated information criteria for each lag order.
+    """
+    results = {}
+    for lag in range(1, max_lag + 1):
+        model = VAR(data)
+        fitted_model = model.fit(lag)
+        if ic == 'aic':
+            results[lag] = fitted_model.aic
+        elif ic == 'bic':
+            results[lag] = fitted_model.bic
+        elif ic == 'hqic':
+            results[lag] = fitted_model.hqic
+
+    return results
+
+def train_model(ticker, df, lag_order):
+    """
+    Train VAR model for a given ticker with specified lag order.
+    Save the trained model using pickle.
+    """
+    try:
+        model = VAR(df)
+        fitted_model = model.fit(lag_order)
+        os.makedirs('models', exist_ok=True)
+        with open(f'models/{ticker}_var_model.pkl', 'wb') as f:
+            pickle.dump(fitted_model, f)
+        print(f"VAR model trained and saved successfully for {ticker} with lag_order={lag_order}.")
+    except Exception as e:
+        print(f"Error training VAR model for {ticker}: {str(e)}")
+
+if __name__ == '__main__':
+    # Example list of tickers
+    tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'F', 'CAT', 'TCS.NS', 'WFC', 'TATASTEEL.NS', 'NFLX', 'RS', 'JPM', 'TSLA']
+
+    # Loop through each ticker
+    for ticker in tickers:
+        # Fetch data from MongoDB
+        data = fetch_data_from_mongodb(ticker)
+        
+        # Preprocess data
+        ts = preprocess_data(data)
+        
+        # Calculate AIC, BIC, HQIC for lag orders from 1 to 10
+        information_criteria_aic = calculate_information_criteria(ts, max_lag=10, ic='aic')
+        information_criteria_bic = calculate_information_criteria(ts, max_lag=10, ic='bic')
+        information_criteria_hqic = calculate_information_criteria(ts, max_lag=10, ic='hqic')
+        
+        # Find the lag order with the minimum AIC, BIC, HQIC
+        best_lag_aic = min(information_criteria_aic, key=information_criteria_aic.get)
+        best_lag_bic = min(information_criteria_bic, key=information_criteria_bic.get)
+        best_lag_hqic = min(information_criteria_hqic, key=information_criteria_hqic.get)
+        
+        # Train model with the best lag order (using AIC, BIC, or HQIC)
+        train_model(ticker, ts, best_lag_aic)  # Train with AIC
+        # train_model(ticker, ts, best_lag_bic)  # Train with BIC
+        # train_model(ticker, ts, best_lag_hqic)  # Train with HQIC
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import pandas as pd
+from pymongo import MongoClient
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 import pickle
 import os

@@ -1,628 +1,133 @@
-1. Introduction
-1.1 Description
-This document outlines the software requirements for the Company Stock Prediction Project. The project aims to develop a comprehensive system that leverages historical stock data and statistical models to predict future stock prices. It will provide actionable buy/sell suggestions and detailed visualizations to enhance decision-making for investors and traders.
-1.2 Problem Statement
-Investors and traders need accurate tools to predict stock prices and make informed decisions on buying and selling stocks. Traditional methods and tools often lack the integration of modern predictive models and real-time data analysis, resulting in suboptimal investment strategies. This project aims to develop a system that leverages historical stock data and advanced statistical models to predict future stock prices, thus providing users with actionable buy/sell suggestions and detailed visualizations to enhance their decision-making process.
-1.3 Scope
-The project covers the development of a full-stack application with the following features:
-•	Fetching and storing historical stock data from the Yahoo Finance API.
-•	Viewing top financial stocks
-•	Adding stocks to watchlist
-•	Providing stock details and visualizing stock data
-•	Predicting future stock prices of a company using the VAR model.
-•	Providing buy/sell suggestions based on predictions.
-•	Enabling user interaction through a web interface.
-2. Pre-requisites
-•	Basic knowledge of stock market concepts and trading.
-•	Understanding of web development technologies (React, Node.js).
-•	Familiarity with Python and statistical modeling.
-•	Experience with databases, particularly MongoDB.
-3. Functional Requirements
-3.1 Data Collection and Storage
-•	Fetch historical stock data from Yahoo Finance API.
-•	Store the fetched data in MongoDB.
-3.2 Data Retrieval and Model Prediction
-•	Retrieve historical stock data from MongoDB.
-•	Train the VAR model on the retrieved data.
-•	Predict future stock prices using the trained model.
-•	Store the predicted values in CSV files.
-3.3 User Interface
-•	Develop a web interface using React for user interaction.
-•	Display top financial stocks and allow users to search for specific stocks.
-•	Visualize historical and predicted stock prices using React Highcharts.
-•	Allow users to add stocks to a watchlist.
-•	Provide a feature to toggle between dark and light themes.
-3.4 Buy/Sell Suggestions
-•	Analyze predicted stock prices to provide buy/sell suggestions.
-•	Allow users to input parameters (ticker, initial capital, start date, end date) for personalized suggestions.
-4. Non-Functional Requirements
-•	Performance: The system should handle multiple user requests efficiently.
-•	Scalability: The architecture should support easy scaling to accommodate more users and additional features.
-•	Reliability: Ensure high availability and minimal downtime.
-•	Usability: The user interface should be intuitive and easy to navigate.
-•	Security: Protect user data and ensure secure communication between the frontend and backend.
-•	Maintainability: Code should be well-documented and follow best practices for easy maintenance and updates.
-5. Solution Approach
-5.1 Data Collection and Storage
-•	Data Source: Fetch stock data from the Yahoo Finance (yfinance) API, including daily prices and other financial metrics.
-•	Data Storage: Store the fetched data in a MongoDB database, leveraging its flexibility and efficiency for handling large volumes of time-series data.
-5.2 Backend Development
-•	Data Retrieval: Use Node.js for the backend to handle requests from the frontend and interact with the MongoDB database for data retrieval.
-•	Model Prediction: Host the VAR (Vector Autoregression) model using a Flask application to predict future stock prices. This modular approach keeps prediction logic separate and maintainable.
-•	CSV Storage: Store predicted stock prices in CSV files for easy integration and manipulation.
-5.3 Frontend Development
-•	React Application: Develop the frontend using React to provide features like viewing top financial stocks, searching for stock details, and visualizing data.
-•	Charts Visualization: Utilize React Highcharts for rendering interactive stock price charts, enabling users to analyze historical and predicted prices visually.
-•	User Interaction: Allow users to input ticker symbols to view stock information, manage a watchlist, toggle themes, and receive buy/sell suggestions.
-5.4 Model Training and Prediction
-•	VAR Model: Train the VAR model using historical stock data for each company individually, considering variables such as open, high, low, close, and volume for accurate predictions.
-•	Prediction: Predict future stock prices for each company and save the results in CSV files for further analysis and user interaction.
-5.5 Suggestion Feature
-•	Buy/Sell Recommendations: Analyze predicted stock prices along with user inputs (initial capital, start date, end date) to provide actionable buy/sell suggestions aimed at maximizing profits.
-•	CSV Integration: Utilize the stored predicted values in CSV files to determine optimal buy/sell points and generate recommendations.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-import pandas as pd
-import pickle
-from pymongo import MongoClient
-from datetime import datetime, timedelta
-from dateutil.parser import parse
-from statsmodels.tsa.vector_ar.var_model import VAR
-
-# Function to load VAR models from pickle files
-def load_var_models():
-    tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN']
-    models = {}
-    for ticker in tickers:
-        try:
-            with open(f'models/{ticker}_var_model.pkl', 'rb') as f:
-                model = pickle.load(f)
-                models[ticker] = model
-                print(f"Loaded VAR model for {ticker}.")
-        except Exception as e:
-            print(f"Error loading VAR model for {ticker}: {str(e)}")
-    return models
-
-# Function to fetch historical data from MongoDB
-def fetch_historical_data(ticker):
-    try:
-        client = MongoClient('mongodb://localhost:27017/')
-        db = client['stockdata']
-        collection = db['daily_price']
-        cursor = collection.find({'Ticker': ticker})
-        df = pd.DataFrame(list(cursor))
-        client.close()
-        return df
-    except Exception as e:
-        print(f"Error fetching data from MongoDB for {ticker}: {str(e)}")
-        return None
-
-# Function to convert date string to datetime
-def convert_to_datetime(date_str):
-    if isinstance(date_str, datetime):
-        return date_str.date()
-    try:
-        return parse(date_str).date()
-    except Exception as e:
-        print(f"Error parsing date string '{date_str}': {str(e)}")
-        return None
-
-# Function to preprocess data for VAR model prediction
-def preprocess_data_for_var(df):
-    try:
-        df['Date'] = df['Date'].apply(convert_to_datetime)
-        df.set_index('Date', inplace=True)
-        df.sort_index(inplace=True)
-        return df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]
-    except Exception as e:
-        print(f"Error preprocessing data for VAR model: {str(e)}")
-        return None
-
-# Function to predict stock prices using a VAR model
-def predict_stock_prices(var_model, latest_data, start_date, end_date):
-    try:
-        ts = preprocess_data_for_var(latest_data)
-        if ts is None:
-            return None
-
-        lag_order = var_model.k_ar
-        forecast_input = ts.values[-lag_order:]
-
-        days_ahead = (end_date - start_date).days + 1
-        forecast = var_model.forecast(forecast_input, steps=days_ahead)
-        predicted_closes = forecast[:, 3]
-
-        target_dates = [start_date + timedelta(days=i) for i in range(days_ahead)]
-        predictions = {'Date': target_dates, 'Close': predicted_closes}
-        return predictions
-    
-    except Exception as e:
-        print(f"Error predicting stock prices using VAR model: {str(e)}")
-        return None
-
-# Load actual values from CSV
-def load_actual_values(filename):
-    try:
-        actual_df = pd.read_csv(filename)
-        actual_df['Date'] = actual_df['Date'].apply(convert_to_datetime)
-        actual_df.set_index(['Date', 'Ticker'], inplace=True)
-        return actual_df
-    except Exception as e:
-        print(f"Error loading actual values from CSV: {str(e)}")
-        return None
-
-# Function to compare predictions with actual values
-def compare_predictions_with_actuals(predicted_df, actual_df):
-    try:
-        predicted_df['Date'] = predicted_df['Date'].apply(convert_to_datetime)
-        predicted_df.set_index(['Date', 'Ticker'], inplace=True)
-        merged_df = pd.merge(predicted_df, actual_df, left_index=True, right_index=True, suffixes=('_Predicted', '_Actual'))
-        return merged_df
-    except Exception as e:
-        print(f"Error comparing predictions with actual values: {str(e)}")
-        return None
-
-if __name__ == '__main__':
-    # Example usage:
-    tickers = ['AAPL', 'MSFT']
-    start_date = datetime.strptime('2024-06-01', '%Y-%m-%d').date()
-    end_date = datetime.strptime('2024-06-30', '%Y-%m-%d').date()
-
-    # Load VAR models
-    models = load_var_models()
-
-    # Initialize empty DataFrame for predictions
-    all_predictions = pd.DataFrame()
-
-    # Loop through each ticker to predict and compare
-    for ticker in tickers:
-        if ticker in models:
-            var_model = models[ticker]
-            historical_data = fetch_historical_data(ticker)
-            
-            if historical_data is not None:
-                predictions = predict_stock_prices(var_model, historical_data, start_date, end_date)
-                if predictions is not None:
-                    predicted_df = pd.DataFrame(predictions)
-                    predicted_df['Ticker'] = ticker
-                    all_predictions = pd.concat([all_predictions, predicted_df])
-
-    # Save all predictions to CSV
-    all_predictions.to_csv('predicted_values.csv', index=False)
-    print("Predictions saved to predicted_values.csv")
-
-    # Load actual values
-    actual_df = load_actual_values('actual_values.csv')
-
-    if actual_df is not None:
-        # Compare predictions with actual values
-        comparison_df = compare_predictions_with_actuals(all_predictions, actual_df)
-        if comparison_df is not None:
-            print("Comparison with actual values:")
-            print(comparison_df)
-
-            # Calculate accuracy or other metrics if needed
-            accuracy = (comparison_df['Close_Predicted'] - comparison_df['Close_Actual']).abs().mean()
-            print(f"Mean Absolute Error: {accuracy}")
-        else:
-            print("Failed to compare predictions with actual values.")
-    else:
-        print("Failed to load actual values.")
-
-
-
-
-
-
-
-
-
-import pandas as pd
-import pickle
-from pymongo import MongoClient
-from datetime import datetime, timedelta
-from dateutil.parser import parse
-from statsmodels.tsa.vector_ar.var_model import VAR
-
-# Function to load VAR models from pickle files
-def load_var_models():
-    tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN']
-    models = {}
-    for ticker in tickers:
-        try:
-            with open(f'models/{ticker}_var_model.pkl', 'rb') as f:
-                model = pickle.load(f)
-                models[ticker] = model
-                print(f"Loaded VAR model for {ticker}.")
-        except Exception as e:
-            print(f"Error loading VAR model for {ticker}: {str(e)}")
-    return models
-
-# Function to fetch historical data from MongoDB
-def fetch_historical_data(ticker):
-    try:
-        client = MongoClient('mongodb://localhost:27017/')
-        db = client['stockdata']
-        collection = db['daily_price']
-        cursor = collection.find({'Ticker': ticker})
-        df = pd.DataFrame(list(cursor))
-        client.close()
-        return df
-    except Exception as e:
-        print(f"Error fetching data from MongoDB for {ticker}: {str(e)}")
-        return None
-
-# Function to convert date string to datetime
-def convert_to_datetime(date_str):
-    if isinstance(date_str, datetime):
-        return date_str
-    try:
-        return parse(date_str).date()
-    except Exception as e:
-        print(f"Error parsing date string '{date_str}': {str(e)}")
-        return None
-
-# Function to preprocess data for VAR model prediction
-def preprocess_data_for_var(df):
-    try:
-        df['Date'] = df['Date'].apply(convert_to_datetime)
-        df.set_index('Date', inplace=True)
-        df.sort_index(inplace=True)
-        return df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]
-    except Exception as e:
-        print(f"Error preprocessing data for VAR model: {str(e)}")
-        return None
-
-# Function to predict stock prices using a VAR model
-def predict_stock_prices(var_model, latest_data, start_date, end_date):
-    try:
-        ts = preprocess_data_for_var(latest_data)
-        if ts is None:
-            return None
-
-        lag_order = var_model.k_ar
-        forecast_input = ts.values[-lag_order:]
-
-        days_ahead = (end_date - start_date).days
-        forecast = var_model.forecast(forecast_input, steps=days_ahead)
-        predicted_closes = forecast[:, 3]
-
-        target_dates = [start_date + timedelta(days=i) for i in range(days_ahead)]
-        predictions = {'Date': target_dates, 'Close': predicted_closes}
-        return predictions
-    
-    except Exception as e:
-        print(f"Error predicting stock prices using VAR model: {str(e)}")
-        return None
-
-# Load actual values from CSV
-def load_actual_values(filename):
-    try:
-        actual_df = pd.read_csv(filename)
-        actual_df['Date'] = actual_df['Date'].apply(convert_to_datetime)
-        actual_df.set_index(['Date', 'Ticker'], inplace=True)
-        return actual_df
-    except Exception as e:
-        print(f"Error loading actual values from CSV: {str(e)}")
-        return None
-
-# Function to compare predictions with actual values
-def compare_predictions_with_actuals(predicted_df, actual_df):
-    try:
-        predicted_df['Date'] = predicted_df['Date'].apply(convert_to_datetime)
-        predicted_df.set_index(['Date', 'Ticker'], inplace=True)
-        merged_df = pd.merge(predicted_df, actual_df, left_index=True, right_index=True, suffixes=('_Predicted', '_Actual'))
-        return merged_df
-    except Exception as e:
-        print(f"Error comparing predictions with actual values: {str(e)}")
-        return None
-
-if __name__ == '__main__':
-    # Example usage:
-    tickers = ['AAPL', 'MSFT']
-    start_date = datetime.strptime('2024-06-01', '%Y-%m-%d').date()
-    end_date = datetime.strptime('2024-06-30', '%Y-%m-%d').date()
-
-    # Load VAR models
-    models = load_var_models()
-
-    # Initialize empty DataFrame for predictions
-    all_predictions = pd.DataFrame()
-
-    # Loop through each ticker to predict and compare
-    for ticker in tickers:
-        if ticker in models:
-            var_model = models[ticker]
-            historical_data = fetch_historical_data(ticker)
-            
-            if historical_data is not None:
-                predictions = predict_stock_prices(var_model, historical_data, start_date, end_date)
-                if predictions is not None:
-                    predicted_df = pd.DataFrame(predictions)
-                    predicted_df['Ticker'] = ticker
-                    all_predictions = pd.concat([all_predictions, predicted_df])
-
-    # Save all predictions to CSV
-    all_predictions.to_csv('predicted_values.csv', index=False)
-    print("Predictions saved to predicted_values.csv")
-
-    # Load actual values
-    actual_df = load_actual_values('actual_values.csv')
-
-    if actual_df is not None:
-        # Compare predictions with actual values
-        comparison_df = compare_predictions_with_actuals(all_predictions, actual_df)
-        if comparison_df is not None:
-            print("Comparison with actual values:")
-            print(comparison_df)
-
-            # Calculate accuracy or other metrics if needed
-            accuracy = (comparison_df['Close_Predicted'] - comparison_df['Close_Actual']).abs().mean()
-            print(f"Mean Absolute Error: {accuracy}")
-        else:
-            print("Failed to compare predictions with actual values.")
-    else:
-        print("Failed to load actual values.")
-
-
-
-
-
-
-
-
-
-
 import pandas as pd
 from datetime import datetime
-from dateutil.parser import parse
-
-# Function to convert date string to datetime
-def convert_to_datetime(date_str):
-    try:
-        return parse(date_str).date()
-    except Exception as e:
-        print(f"Error parsing date string '{date_str}': {str(e)}")
-        return None
-
-# Load actual values from CSV for a specific ticker
-def load_actual_values(filename, ticker):
-    try:
-        actual_df = pd.read_csv(filename)
-        actual_df['Date'] = actual_df['Date'].apply(convert_to_datetime)
-        actual_df = actual_df[actual_df['Ticker'] == ticker]
-        return actual_df
-    except Exception as e:
-        print(f"Error loading actual values from CSV for {ticker}: {str(e)}")
-        return None
-
-# Function to compare predictions with actual values for a specific ticker
-def compare_predictions_with_actuals(predicted_df, actual_df):
-    try:
-        merged_df = pd.merge(predicted_df, actual_df, on=['Date', 'Ticker'], suffixes=('_Predicted', '_Actual'))
-        return merged_df
-    except Exception as e:
-        print(f"Error comparing predictions with actual values: {str(e)}")
-        return None
-
-if __name__ == '__main__':
-    # Example usage:
-    tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN']  # Example tickers
-    predicted_files = ['predicted_values_AAPL.csv', 'predicted_values_MSFT.csv', 'predicted_values_GOOGL.csv', 'predicted_values_AMZN.csv']
-    actual_file = 'actual_values.csv'
-
-    for ticker, predicted_file in zip(tickers, predicted_files):
-        try:
-            # Load predicted values for the ticker
-            predicted_df = pd.read_csv(predicted_file)
-
-            # Load actual values for the ticker
-            actual_df = load_actual_values(actual_file, ticker)
-            if actual_df is None:
-                print(f"Failed to load actual values for {ticker}. Skipping...")
-                continue
-
-            # Compare predictions with actual values for the ticker
-            comparison_df = compare_predictions_with_actuals(predicted_df, actual_df)
-
-            if comparison_df is not None:
-                print(f"Comparison with actual values for {ticker}:")
-                print(comparison_df)
-
-                # Calculate accuracy or other metrics if needed
-                accuracy = (comparison_df['Close_Predicted'] - comparison_df['Close_Actual']).abs().mean()
-                print(f"Mean Absolute Error for {ticker}: {accuracy}")
-
-            else:
-                print(f"Failed to compare predictions with actual values for {ticker}.")
-
-        except Exception as e:
-            print(f"Error processing {ticker}: {str(e)}")
-
-
-
-
-
-
-
-
-
-
-import pandas as pd
-import pickle
 from pymongo import MongoClient
-from datetime import datetime, timedelta
+from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.tsa.vector_ar.var_model import VAR
-from dateutil.parser import parse
+from sklearn.metrics import mean_squared_error
+import numpy as np
+import os
+import warnings
+# Suppress warnings
+warnings.filterwarnings("ignore")
 
-# Function to load VAR models from pickle files
-def load_var_models(tickers):
-    models = {}
-    for ticker in tickers:
-        try:
-            with open(f'models/{ticker}_var_model.pkl', 'rb') as f:
-                model = pickle.load(f)
-                models[ticker] = model
-                print(f"Loaded VAR model for {ticker}.")
-        except Exception as e:
-            print(f"Error loading VAR model for {ticker}: {str(e)}")
-    return models
+# MongoDB connection setup
+client = MongoClient('mongodb://localhost:27017/')
+db = client['stockdata']
+collection = db['daily_price']
 
-# Function to fetch historical data from MongoDB for a specific ticker
-def fetch_historical_data(ticker):
+def fetch_data_from_mongodb(ticker):
+    cursor = collection.find({'Ticker': ticker})
+    df = pd.DataFrame(list(cursor))
+    return df
+
+def preprocess_data(df):
+    df['Date'] = pd.to_datetime(df['Date'], format='%Y-%m-%d')
+    df.set_index('Date', inplace=True)
+    df.sort_index(inplace=True)
+    df.index = pd.DatetimeIndex(df.index.values, freq=df.index.inferred_freq)
+    return df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]
+
+def split_train_test(data, split_date):
+    split_date = pd.to_datetime(split_date)
+    train = data[data.index <= split_date]
+    test = data[data.index > split_date]
+    return train, test
+
+def train_sarimax_model(train_data, order=(1, 1, 1), seasonal_order=(1, 1, 1, 7)):
+    exog_vars = train_data[['Open', 'High', 'Low', 'Adj Close', 'Volume']]
+    sarimax_model = SARIMAX(train_data['Adj Close'], exog=exog_vars, order=order, seasonal_order=seasonal_order, enforce_stationarity=False)
+    sarimax_fit = sarimax_model.fit(disp=False)
+    return sarimax_fit
+
+def train_var_model(train_data, lag_order=8):
+    var_model = VAR(train_data)
+    var_fit = var_model.fit(lag_order)
+    return var_fit
+
+def forecast_sarimax_model(model, test_data):
+    exog_vars = test_data[['Open', 'High', 'Low', 'Adj Close', 'Volume']]
+    forecast = model.get_forecast(steps=len(test_data), exog=exog_vars)
+    return forecast.predicted_mean
+
+def forecast_var_model(model, test_data):
+    forecast = model.forecast(test_data.values, steps=len(test_data))
+    return forecast[:, 4]
+
+def evaluate_rmse(actual, forecast):
+    mask = ~np.isnan(actual) & (actual != 0)
+    actual_filtered = actual[mask]
+    forecast_filtered = forecast[mask]
+    return mean_squared_error(actual_filtered, forecast_filtered, squared=False)
+
+def evaluate_mape(actual, forecast):
+    mask = ~np.isnan(actual) & (actual != 0)
+    actual_filtered = actual[mask]
+    forecast_filtered = forecast[mask]
+    if len(actual_filtered) == 0:
+        return np.nan
+    return (np.abs((actual_filtered - forecast_filtered) / actual_filtered).mean()) * 100
+
+def evaluate_accuracy(actual, forecast):
+    mape = evaluate_mape(actual, forecast)
+    if np.isnan(mape):
+        return np.nan
+    return 100 - mape
+
+def validate_models(ticker, split_date, sarima_order=(1, 1, 1), sarima_seasonal_order=(1, 1, 1, 7), var_lag_order=7):
     try:
-        client = MongoClient('mongodb://localhost:27017/')
-        db = client['stockdata']
-        collection = db['daily_price']
-        cursor = collection.find({'Ticker': ticker})
-        df = pd.DataFrame(list(cursor))
-        client.close()
-        return df
-    except Exception as e:
-        print(f"Error fetching data from MongoDB for {ticker}: {str(e)}")
-        return None
+        df = fetch_data_from_mongodb(ticker)
+        ts = preprocess_data(df)
+        train, test = split_train_test(ts, split_date)
+        
+        # Train and forecast SARIMAX model
+        sarimax_model = train_sarimax_model(train, sarima_order, sarima_seasonal_order)
+        sarimax_forecast = forecast_sarimax_model(sarimax_model, test)
+        
+        # Train and forecast VAR model
+        var_model = train_var_model(train, var_lag_order)
+        var_forecast = forecast_var_model(var_model, test)
 
-# Function to preprocess data for VAR model prediction
-def preprocess_data_for_var(df):
-    try:
-        df['Date'] = pd.to_datetime(df['Date'])
-        df.set_index('Date', inplace=True)
-        df.sort_index(inplace=True)
-        return df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume', 'Ticker']]
-    except Exception as e:
-        print(f"Error preprocessing data for VAR model: {str(e)}")
-        return None
+        sarimax_forecast.index = test.index
+        var_forecast = pd.Series(var_forecast, index=test.index)
 
-# Function to predict stock prices using a VAR model
-def predict_stock_prices(var_model, latest_data, start_date, end_date):
-    try:
-        ts = preprocess_data_for_var(latest_data)
-        if ts is None:
-            return None
-
-        lag_order = var_model.k_ar
-        forecast_input = ts.values[-lag_order:]
-
-        total_days = (end_date - start_date).days + 1
-        forecast = var_model.forecast(forecast_input, steps=total_days)
-        predicted_closes = forecast[:, 3]
-
-        target_dates = [start_date + timedelta(days=i) for i in range(total_days)]
-        predictions = pd.DataFrame({
-            'Date': target_dates,
-            'Close': predicted_closes,
-            'Ticker': latest_data['Ticker'].iloc[0]  # Assuming the ticker is constant for the historical data
-        })
-
-        return predictions
+        # Evaluate SARIMAX model
+        sarimax_rmse = evaluate_rmse(test['Adj Close'], sarimax_forecast)
+        sarimax_mape = evaluate_mape(test['Adj Close'], sarimax_forecast)
+        sarimax_accuracy = evaluate_accuracy(test['Adj Close'], sarimax_forecast)
+        
+        # Evaluate VAR model
+        var_rmse = evaluate_rmse(test['Adj Close'], var_forecast)
+        var_mape = evaluate_mape(test['Adj Close'], var_forecast)
+        var_accuracy = evaluate_accuracy(test['Adj Close'], var_forecast)
+        
+        print(f"Validation results for {ticker}:")
+        print(f"SARIMAX RMSE: {sarimax_rmse}")
+        print(f"SARIMAX MAPE: {sarimax_mape}")
+        print(f"SARIMAX Accuracy: {sarimax_accuracy}%")
+        print(f"VAR RMSE: {var_rmse}")
+        print(f"VAR MAPE: {var_mape}")
+        print(f"VAR Accuracy: {var_accuracy}%")
+        
+        return sarimax_rmse, var_rmse, sarimax_accuracy, var_accuracy
     
     except Exception as e:
-        print(f"Error predicting stock prices using VAR model: {str(e)}")
-        return None
-
-# Function to save predictions to CSV
-def save_predictions_to_csv(predictions, filename):
-    predictions.to_csv(filename, index=False)
-
-# Function to convert date string to datetime.date
-def convert_to_datetime(date_str):
-    try:
-        return parse(date_str).date()
-    except Exception as e:
-        print(f"Error parsing date string '{date_str}': {str(e)}")
-        return None
-
-# Function to load actual values from CSV
-def load_actual_values(filename):
-    try:
-        actual_df = pd.read_csv(filename)
-        actual_df['Date'] = actual_df['Date'].apply(convert_to_datetime)
-        return actual_df
-    except Exception as e:
-        print(f"Error loading actual values from CSV: {str(e)}")
-        return None
-
-# Function to compare predictions with actual values
-def compare_predictions_with_actuals(predicted_df, actual_df):
-    merged_df = pd.concat([predicted_df.set_index('Date'), actual_df.set_index('Date')], axis=1)
-    merged_df.reset_index(inplace=True)
-    return merged_df
+        print(f"Error validating models for {ticker}: {str(e)}")
+        return None, None, None, None
 
 if __name__ == '__main__':
-    # Example tickers and date range
-    tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN']  # Example tickers
-    start_date = datetime(2024, 1, 1).date()  # Example start date
-    end_date = datetime(2024, 1, 31).date()  # Example end date
+    tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN','META','F','CAT','TCS.NS','WFC','TATASTEEL.NS','NFLX','RS','JPM','TSLA']
+    split_date = datetime(2024, 2, 1)
+    
+    for ticker in tickers:
+        print(f"Validating models for {ticker}...")
+        validate_models(ticker, split_date)
+        print()
+    
+    # Close MongoDB client connection at the end
+    client.close()
 
-    # Load VAR models for all tickers
-    models = load_var_models(tickers)
 
-    try:
-        if not models:
-            raise ValueError("No models loaded.")
 
-        for ticker in tickers:
-            if ticker not in models:
-                print(f"Model for {ticker} not found. Skipping...")
-                continue
-
-            # Fetch historical data for the ticker
-            historical_data = fetch_historical_data(ticker)
-            if historical_data is None:
-                print(f"Failed to fetch historical data for {ticker}. Skipping...")
-                continue
-
-            # Select appropriate VAR model for the ticker
-            var_model = models[ticker]
-
-            # Predict stock prices for the ticker and date range
-            predictions = predict_stock_prices(var_model, historical_data, start_date, end_date)
-
-            if predictions is not None:
-                # Save predictions to CSV for the ticker
-                save_predictions_to_csv(predictions, f'predicted_values_{ticker}.csv')
-                print(f"Predictions saved to predicted_values_{ticker}.csv")
-
-                # Load actual values from CSV for comparison
-                actual_df = load_actual_values('actual_values.csv')
-
-                if actual_df is not None:
-                    # Compare predictions with actual values for the ticker
-                    comparison_df = compare_predictions_with_actuals(predictions, actual_df)
-                    print(f"Comparison with actual values for {ticker}:")
-                    print(comparison_df)
-
-                    # Calculate accuracy or other metrics if needed
-                    accuracy = (comparison_df['Close'] - comparison_df['Close_Actual']).abs().mean()
-                    print(f"Mean Absolute Error for {ticker}: {accuracy}")
-                else:
-                    print(f"Failed to load actual values for {ticker}.")
-
-            else:
-                print(f"Failed to predict stock prices for {ticker}.")
-
-    except Exception as e:
-        print(f"Error: {str(e)}")
 
 
 
@@ -633,25 +138,11 @@ if __name__ == '__main__':
 
 
 import pandas as pd
-import pickle
 from pymongo import MongoClient
-from datetime import datetime, timedelta
-from statsmodels.tsa.vector_ar.var_model import VAR
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+import pickle
 
-# Function to load VAR models from pickle files
-def load_var_models(tickers):
-    models = {}
-    for ticker in tickers:
-        try:
-            with open(f'models/{ticker}_var_model.pkl', 'rb') as f:
-                model = pickle.load(f)
-                models[ticker] = model
-                print(f"Loaded VAR model for {ticker}.")
-        except Exception as e:
-            print(f"Error loading VAR model for {ticker}: {str(e)}")
-    return models
-
-# Function to fetch historical data from MongoDB for a specific ticker
+# Function to fetch historical data from MongoDB
 def fetch_historical_data(ticker):
     try:
         client = MongoClient('mongodb://localhost:27017/')
@@ -665,113 +156,175 @@ def fetch_historical_data(ticker):
         print(f"Error fetching data from MongoDB for {ticker}: {str(e)}")
         return None
 
-# Function to preprocess data for VAR model prediction
-def preprocess_data_for_var(df):
+# Function to preprocess data for SARIMAX model training
+def preprocess_data(df):
     try:
         df['Date'] = pd.to_datetime(df['Date'])
         df.set_index('Date', inplace=True)
         df.sort_index(inplace=True)
         return df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]
     except Exception as e:
-        print(f"Error preprocessing data for VAR model: {str(e)}")
+        print(f"Error preprocessing data for SARIMAX model: {str(e)}")
         return None
 
-# Function to predict stock prices using a VAR model
-def predict_stock_prices(var_model, latest_data, start_date, end_date):
+# Function to train SARIMAX model
+def train_sarimax_model(train_data, order=(1, 1, 1), seasonal_order=(1, 1, 1, 7)):
     try:
-        ts = preprocess_data_for_var(latest_data)
+        exog_vars = train_data[['Open', 'High', 'Low', 'Adj Close', 'Volume']]
+        sarimax_model = SARIMAX(train_data['Adj Close'], exog=exog_vars, order=order, seasonal_order=seasonal_order, enforce_stationarity=False)
+        sarimax_fit = sarimax_model.fit(disp=False)
+        return sarimax_fit
+    except Exception as e:
+        print(f"Error training SARIMAX model: {str(e)}")
+        return None
+
+# Function to save trained SARIMAX model as a pickle file
+def save_sarimax_model(model, ticker):
+    try:
+        with open(f'models/{ticker}_sarimax_model.pkl', 'wb') as f:
+            pickle.dump(model, f)
+        print(f"Saved SARIMAX model for {ticker}.")
+    except Exception as e:
+        print(f"Error saving SARIMAX model for {ticker}: {str(e)}")
+
+if __name__ == '__main__':
+    tickers = ['AAPL', 'MSFT']
+    
+    for ticker in tickers:
+        print(f"Training SARIMAX model for {ticker}...")
+        data = fetch_historical_data(ticker)
+        if data is None or data.empty:
+            print(f"No data found for {ticker}. Skipping...")
+            continue
+        
+        processed_data = preprocess_data(data)
+        if processed_data is None:
+            print(f"Error preprocessing data for {ticker}. Skipping...")
+            continue
+        
+        sarimax_model = train_sarimax_model(processed_data)
+        if sarimax_model is not None:
+            save_sarimax_model(sarimax_model, ticker)
+        else:
+            print(f"Failed to train SARIMAX model for {ticker}. Skipping...")
+        
+        print()
+
+    print("SARIMAX model training completed.")
+
+
+
+
+
+
+from flask import Flask, request, jsonify
+import pandas as pd
+import pickle
+from pymongo import MongoClient
+from datetime import datetime, timedelta
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+import warnings
+
+app = Flask(__name__)
+
+# Suppress warnings
+warnings.filterwarnings("ignore")
+
+# Function to load SARIMAX models from pickle files
+def load_models():
+    tickers = ['AAPL', 'MSFT']  # Add more tickers as needed
+    models = {}
+    for ticker in tickers:
+        try:
+            with open(f'models/{ticker}_sarimax_model.pkl', 'rb') as f:
+                model = pickle.load(f)
+                models[ticker] = model
+                print(f"Loaded SARIMAX model for {ticker}.")
+        except Exception as e:
+            print(f"Error loading SARIMAX model for {ticker}: {str(e)}")
+    return models
+
+# Function to fetch historical data from MongoDB
+def fetch_historical_data(ticker):
+    try:
+        client = MongoClient('mongodb://localhost:27017/')
+        db = client['stockdata']
+        collection = db['daily_price']
+        cursor = collection.find({'Ticker': ticker})
+        df = pd.DataFrame(list(cursor))
+        client.close()
+        return df
+    except Exception as e:
+        print(f"Error fetching historical data for {ticker}: {str(e)}")
+        return None
+
+# Function to preprocess data for SARIMAX model prediction
+def preprocess_data_for_sarimax(df):
+    try:
+        df['Date'] = pd.to_datetime(df['Date'])
+        df.set_index('Date', inplace=True)
+        df.sort_index(inplace=True)
+        return df[['Open', 'High', 'Low', 'Close', 'Volume']]
+    except Exception as e:
+        print(f"Error preprocessing data for SARIMAX model: {str(e)}")
+        return None
+
+# Function to predict stock prices using SARIMAX model
+def predict_stock_prices(model, latest_data, days_ahead):
+    try:
+        ts = preprocess_data_for_sarimax(latest_data)
         if ts is None:
+            print("Preprocessed data is None.")
             return None
 
-        lag_order = var_model.k_ar
-        forecast_input = ts.values[-lag_order:]
+        # Select exogenous variables ('Open', 'High', 'Low', 'Close', 'Volume')
+        exog_vars = ts[['Open', 'High', 'Low', 'Close', 'Volume']]
+        
+        # Ensure exog_vars aligns with the forecast length
+        exog_vars = exog_vars[-days_ahead:]
 
-        total_days = (end_date - start_date).days + 1
-        forecast = var_model.forecast(forecast_input, steps=total_days)
-        predicted_closes = forecast[:, 3]
+        # Forecast using SARIMAX with exogenous variables
+        forecast = model.get_forecast(steps=days_ahead, exog=exog_vars)
+        predicted_closes = forecast.predicted_mean.values
 
-        target_dates = [(start_date + timedelta(days=i)).date() for i in range(total_days)]
-        predictions = pd.DataFrame({
-            'Date': target_dates,
-            'Close': predicted_closes,
-            'Ticker': latest_data['Ticker'].iloc[0]  # Assuming the ticker is constant for the historical data
-        })
-
+        today = datetime.now().date()
+        target_dates = [(today + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(1, days_ahead + 1)]
+        predictions = {target_dates[i]: predicted_closes[i] for i in range(days_ahead)}
         return predictions
     
     except Exception as e:
-        print(f"Error predicting stock prices using VAR model: {str(e)}")
+        print(f"Error predicting stock prices using SARIMAX model: {str(e)}")
         return None
 
-# Function to save predictions to CSV
-def save_predictions_to_csv(predictions, filename):
-    predictions.to_csv(filename, index=False)
+# Load SARIMAX models on application startup
+models = load_models()
 
-# Function to load actual values from CSV
-def load_actual_values(filename):
+@app.route('/predict/next_month', methods=['POST'])
+def predict_next_month():
+    ticker = request.json['ticker']
+    
     try:
-        return pd.read_csv(filename, parse_dates=['Date'])
+        if ticker not in models:
+            return jsonify({'error': f'Model for {ticker} not found.'}), 404
+        
+        # Fetch historical data
+        historical_data = fetch_historical_data(ticker)
+        if historical_data is None or historical_data.empty:
+            return jsonify({'error': f'Failed to fetch historical data for {ticker}.'}), 500
+        
+        # Predict next month's Adj Close prices using SARIMAX model
+        predictions = predict_stock_prices(models[ticker], historical_data, days_ahead=30)
+        
+        if predictions is not None:
+            return jsonify({'ticker': ticker, 'predictions': predictions})
+        else:
+            return jsonify({'error': 'Failed to predict stock prices.'}), 500
+    
+    except KeyError as ke:
+        return jsonify({'error': f'Missing or incorrect parameter: {str(ke)}'}), 400
+    
     except Exception as e:
-        print(f"Error loading actual values from CSV: {str(e)}")
-        return None
-
-# Function to compare predictions with actual values
-def compare_predictions_with_actuals(predicted_df, actual_df):
-    merged_df = pd.merge(predicted_df, actual_df, on=['Date', 'Ticker'], suffixes=('_Predicted', '_Actual'))
-    return merged_df
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    # Example tickers and date range
-    tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN']  # Example tickers
-    start_date = datetime(2024, 1, 1).date()  # Example start date
-    end_date = datetime(2024, 1, 31).date()  # Example end date
-
-    # Load VAR models for all tickers
-    models = load_var_models(tickers)
-
-    try:
-        if not models:
-            raise ValueError("No models loaded.")
-
-        for ticker in tickers:
-            if ticker not in models:
-                print(f"Model for {ticker} not found. Skipping...")
-                continue
-
-            # Fetch historical data for the ticker
-            historical_data = fetch_historical_data(ticker)
-            if historical_data is None:
-                print(f"Failed to fetch historical data for {ticker}. Skipping...")
-                continue
-
-            # Select appropriate VAR model for the ticker
-            var_model = models[ticker]
-
-            # Predict stock prices for the ticker and date range
-            predictions = predict_stock_prices(var_model, historical_data, start_date, end_date)
-
-            if predictions is not None:
-                # Save predictions to CSV for the ticker
-                save_predictions_to_csv(predictions, f'predicted_values_{ticker}.csv')
-                print(f"Predictions saved to predicted_values_{ticker}.csv")
-
-                # Load actual values from CSV for comparison
-                actual_df = load_actual_values('actual_values.csv')
-
-                if actual_df is not None:
-                    # Compare predictions with actual values for the ticker
-                    comparison_df = compare_predictions_with_actuals(predictions, actual_df)
-                    print(f"Comparison with actual values for {ticker}:")
-                    print(comparison_df)
-
-                    # Calculate accuracy or other metrics if needed
-                    accuracy = (comparison_df['Close_Predicted'] - comparison_df['Close_Actual']).abs().mean()
-                    print(f"Mean Absolute Error for {ticker}: {accuracy}")
-                else:
-                    print(f"Failed to load actual values for {ticker}.")
-
-            else:
-                print(f"Failed to predict stock prices for {ticker}.")
-
-    except Exception as e:
-        print(f"Error: {str(e)}")
+    app.run(debug=True)

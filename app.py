@@ -64,6 +64,101 @@ import numpy as np
 from pymongo import MongoClient
 import pickle
 import warnings
+from datetime import timedelta
+
+warnings.filterwarnings("ignore")
+
+app = Flask(__name__)
+
+def fetch_data_from_mongodb(ticker):
+    client = MongoClient('mongodb://localhost:27017/')
+    db = client['stockdata']
+    collection = db['daily_price']
+    cursor = collection.find({'Ticker': ticker})
+    df = pd.DataFrame(list(cursor))
+    client.close()
+    return df
+
+def preprocess_data(df):
+    df['Date'] = pd.to_datetime(df['Date'])
+    df.set_index('Date', inplace=True)
+    df.sort_index(inplace=True)
+    return df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]
+
+def create_lagged_features(df, lags=5):
+    lagged_data = df.copy()
+    for lag in range(1, lags + 1):
+        for column in df.columns:
+            lagged_data[f'{column}_lag{lag}'] = df[column].shift(lag)
+    lagged_data.dropna(inplace=True)
+    return lagged_data
+
+def predict_future_values(ticker, exog_future, periods=30):
+    try:
+        with open(f'models/{ticker}_sarimax_model.pkl', 'rb') as f:
+            model = pickle.load(f)
+        predictions = model.get_forecast(steps=periods, exog=exog_future).predicted_mean
+        return predictions
+    except Exception as e:
+        print(f"Error predicting future values for {ticker}: {str(e)}")
+        return None
+
+@app.route('/predict', methods=['GET'])
+def predict():
+    ticker = request.args.get('ticker')
+    if not ticker:
+        return jsonify({"error": "Ticker is required"}), 400
+
+    data = fetch_data_from_mongodb(ticker)
+    ts = preprocess_data(data)
+    ts_lagged = create_lagged_features(ts, lags=5)
+    
+    exog_future = ts_lagged.drop(columns=['Close']).tail(1).values
+    exog_future = np.repeat(exog_future, 30, axis=0)
+    
+    future_predictions = predict_future_values(ticker, exog_future, 30)
+    if future_predictions is not None:
+        last_date = ts.index[-1]
+        future_dates = [last_date + timedelta(days=i) for i in range(1, 31)]
+        predictions_with_dates = [{'date': date.strftime('%Y-%m-%d'), 'predicted_close': value} for date, value in zip(future_dates, future_predictions)]
+        return jsonify({"ticker": ticker, "predictions": predictions_with_dates}), 200
+    else:
+        return jsonify({"error": "Prediction failed"}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# app.py
+from flask import Flask, request, jsonify
+import pandas as pd
+import numpy as np
+from pymongo import MongoClient
+import pickle
+import warnings
 
 warnings.filterwarnings("ignore")
 

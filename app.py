@@ -1,3 +1,182 @@
+# train.py
+import pandas as pd
+import numpy as np
+from pymongo import MongoClient
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+import pickle
+import os
+import warnings
+warnings.filterwarnings("ignore")
+
+def fetch_data_from_mongodb(ticker):
+    client = MongoClient('mongodb://localhost:27017/')
+    db = client['stockdata']
+    collection = db['daily_price']
+    cursor = collection.find({'Ticker': ticker})
+    df = pd.DataFrame(list(cursor))
+    client.close()
+    return df
+
+def preprocess_data(df):
+    df['Date'] = pd.to_datetime(df['Date'])
+    df.set_index('Date', inplace=True)
+    df.sort_index(inplace=True)
+    return df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]
+
+def create_lagged_features(df, lags=5):
+    lagged_data = df.copy()
+    for lag in range(1, lags + 1):
+        for column in df.columns:
+            lagged_data[f'{column}_lag{lag}'] = df[column].shift(lag)
+    lagged_data.dropna(inplace=True)
+    return lagged_data
+
+def train_sarimax_model(ticker, df, order=(1, 1, 1), seasonal_order=(0, 0, 0, 0)):
+    endog = df['Adj Close']
+    exog = df.drop(columns=['Adj Close'])  # Drop Adj Close from exogenous variables
+    try:
+        model = SARIMAX(endog, exog=exog, order=order, seasonal_order=seasonal_order)
+        fitted_model = model.fit(disp=False)
+        os.makedirs('models', exist_ok=True)
+        with open(f'models/{ticker}_sarimax_model.pkl', 'wb') as f:
+            pickle.dump(fitted_model, f)
+        print(f"SARIMAX model trained and saved successfully for {ticker}.")
+    except Exception as e:
+        print(f"Error training SARIMAX model for {ticker}: {str(e)}")
+
+if __name__ == '__main__':
+    tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'F', 'CAT', 'TCS.NS', 'WFC', 'TATASTEEL.NS', 'NFLX', 'RS', 'JPM', 'TSLA']
+    for ticker in tickers:
+        data = fetch_data_from_mongodb(ticker)
+        ts = preprocess_data(data)
+        ts_lagged = create_lagged_features(ts, lags=5)  # Create lagged features for SARIMAX
+        
+        train_sarimax_model(ticker, ts_lagged)
+
+
+
+
+
+
+
+
+
+
+# app.py
+from flask import Flask, request, jsonify
+import pandas as pd
+import pickle
+from pymongo import MongoClient
+from datetime import datetime, timedelta
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+
+app = Flask(__name__)
+
+# Function to load SARIMAX models from pickle files
+def load_sarimax_models():
+    tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'F', 'CAT', 'TCS.NS', 'WFC', 'TATASTEEL.NS', 'NFLX', 'RS', 'JPM', 'TSLA']
+    models = {}
+    for ticker in tickers:
+        try:
+            with open(f'models/{ticker}_sarimax_model.pkl', 'rb') as f:
+                model = pickle.load(f)
+                models[ticker] = model
+                print(f"Loaded SARIMAX model for {ticker}.")
+        except Exception as e:
+            print(f"Error loading SARIMAX model for {ticker}: {str(e)}")
+    return models
+
+# Function to fetch historical data from MongoDB
+def fetch_historical_data(ticker):
+    try:
+        client = MongoClient('mongodb://localhost:27017/')
+        db = client['stockdata']
+        collection = db['daily_price']
+        cursor = collection.find({'Ticker': ticker})
+        df = pd.DataFrame(list(cursor))
+        client.close()
+        return df
+    except Exception as e:
+        print(f"Error fetching data from MongoDB for {ticker}: {str(e)}")
+        return None
+
+# Function to preprocess data for SARIMAX model prediction
+def preprocess_data_for_sarimax(df):
+    try:
+        df['Date'] = pd.to_datetime(df['Date'])
+        df.set_index('Date', inplace=True)
+        df.sort_index(inplace=True)
+        return df[['Open', 'High', 'Low', 'Close', 'Volume']]  # Use lagged values of these variables for SARIMAX
+    except Exception as e:
+        print(f"Error preprocessing data for SARIMAX model: {str(e)}")
+        return None
+
+# Function to predict stock prices using a SARIMAX model
+def predict_stock_prices_sarimax(sarimax_model, latest_data, days_ahead):
+    try:
+        exog_data = preprocess_data_for_sarimax(latest_data)
+        if exog_data is None:
+            return None
+        
+        forecast = sarimax_model.get_forecast(steps=days_ahead, exog=exog_data)
+        predicted_closes = forecast.predicted_mean.values
+
+        today = datetime.now().date()
+        target_dates = [(today + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(days_ahead)]
+        predictions = {target_dates[i]: predicted_closes[i] for i in range(days_ahead)}
+        
+        return predictions
+    
+    except Exception as e:
+        print(f"Error predicting stock prices using SARIMAX model: {str(e)}")
+        return None
+
+# Load SARIMAX models on application startup
+sarimax_models = load_sarimax_models()
+
+@app.route('/predict/next_month_sarimax', methods=['POST'])
+def predict_next_month_sarimax():
+    ticker = request.json['ticker']
+    
+    try:
+        if ticker not in sarimax_models:
+            return jsonify({'error': f'Model for {ticker} not found.'}), 404
+        
+        historical_data = fetch_historical_data(ticker)
+        if historical_data is None:
+            return jsonify({'error': f'Failed to fetch historical data for {ticker}.'}), 500
+        
+        sarimax_model = sarimax_models[ticker]
+        predictions = predict_stock_prices_sarimax(sarimax_model, historical_data, days_ahead=30)
+        
+        if predictions is not None:
+            return jsonify({'ticker': ticker, 'predictions': predictions})
+        else:
+            return jsonify({'error': 'Failed to predict stock prices using SARIMAX model.'}), 500
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # train.py for SARIMAX
 import pandas as pd
 import numpy as np

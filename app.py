@@ -1,3 +1,101 @@
+# app.py
+from flask import Flask, request, jsonify
+import pandas as pd
+import numpy as np
+from pymongo import MongoClient
+import pickle
+import warnings
+from datetime import datetime, timedelta
+
+warnings.filterwarnings("ignore")
+
+app = Flask(__name__)
+
+def fetch_data_from_mongodb(ticker):
+    client = MongoClient('mongodb://localhost:27017/')
+    db = client['stockdata']
+    collection = db['daily_price']
+    cursor = collection.find({'Ticker': ticker})
+    df = pd.DataFrame(list(cursor))
+    client.close()
+    return df
+
+def preprocess_data(df):
+    df['Date'] = pd.to_datetime(df['Date'])
+    df.set_index('Date', inplace=True)
+    df.sort_index(inplace=True)
+    return df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]
+
+def create_lagged_features(df, lags=5):
+    lagged_data = df.copy()
+    for lag in range(1, lags + 1):
+        for column in df.columns:
+            lagged_data[f'{column}_lag{lag}'] = df[column].shift(lag)
+    lagged_data.dropna(inplace=True)
+    return lagged_data
+
+def predict_future_values(ticker, exog_future, start_date, periods=30):
+    try:
+        with open(f'models/{ticker}_sarimax_model.pkl', 'rb') as f:
+            model = pickle.load(f)
+        
+        # Create a range of future dates starting from the current date
+        future_dates = [start_date + timedelta(days=i) for i in range(periods)]
+        
+        # Predict the future values
+        predictions = model.get_forecast(steps=periods, exog=exog_future).predicted_mean
+        
+        # Combine dates with corresponding predicted values
+        predictions_with_dates = [{'date': date.strftime('%Y-%m-%d'), 'predicted_close': value} for date, value in zip(future_dates, predictions)]
+        
+        return predictions_with_dates
+    except Exception as e:
+        print(f"Error predicting future values for {ticker}: {str(e)}")
+        return None
+
+@app.route('/predict', methods=['GET'])
+def predict():
+    ticker = request.args.get('ticker')
+    if not ticker:
+        return jsonify({"error": "Ticker is required"}), 400
+
+    # Fetch historical data and preprocess
+    data = fetch_data_from_mongodb(ticker)
+    ts = preprocess_data(data)
+    ts_lagged = create_lagged_features(ts, lags=5)
+    
+    # Calculate exogenous variables (lagged features) from the last available date
+    exog_future = ts_lagged.drop(columns=['Close']).tail(1).values
+    exog_future = np.repeat(exog_future, 30, axis=0)
+    
+    # Get the current date
+    current_date = ts.index[-1]
+    
+    # Predict future values from current date to next 30 days
+    future_predictions = predict_future_values(ticker, exog_future, current_date, 30)
+    
+    if future_predictions is not None:
+        return jsonify({"ticker": ticker, "predictions": future_predictions}), 200
+    else:
+        return jsonify({"error": "Prediction failed"}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 from flask import Flask, request, jsonify
 import pandas as pd
 import pickle

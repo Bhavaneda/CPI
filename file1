@@ -1,3 +1,198 @@
+train.py
+import pandas as pd
+from pymongo import MongoClient
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+import pickle
+
+# Function to fetch historical data from MongoDB
+def fetch_historical_data(ticker):
+    try:
+        client = MongoClient('mongodb://localhost:27017/')
+        db = client['stockdata']
+        collection = db['daily_price']
+        cursor = collection.find({'Ticker': ticker})
+        df = pd.DataFrame(list(cursor))
+        client.close()
+        return df
+    except Exception as e:
+        print(f"Error fetching data from MongoDB for {ticker}: {str(e)}")
+        return None
+
+# Function to preprocess data for SARIMAX model training
+def preprocess_data(df):
+    try:
+        df['Date'] = pd.to_datetime(df['Date'])
+        df.set_index('Date', inplace=True)
+        df.sort_index(inplace=True)
+        return df[['Adj Close']]  # Only 'Adj Close' is needed for training SARIMAX
+    except Exception as e:
+        print(f"Error preprocessing data for SARIMAX model: {str(e)}")
+        return None
+
+# Function to train SARIMAX model
+def train_sarimax_model(train_data, order=(1, 1, 1), seasonal_order=(1, 1, 1, 12)):
+    try:
+        sarimax_model = SARIMAX(train_data['Adj Close'], order=order, seasonal_order=seasonal_order, enforce_stationarity=False)
+        sarimax_fit = sarimax_model.fit(disp=False)
+        return sarimax_fit
+    except Exception as e:
+        print(f"Error training SARIMAX model: {str(e)}")
+        return None
+
+# Function to save trained SARIMAX model as a pickle file
+def save_sarimax_model(model, ticker):
+    try:
+        with open(f'models/{ticker}_sarimax_model.pkl', 'wb') as f:
+            pickle.dump(model, f)
+        print(f"Saved SARIMAX model for {ticker}.")
+    except Exception as e:
+        print(f"Error saving SARIMAX model for {ticker}: {str(e)}")
+
+if __name__ == '__main__':
+    tickers = ['AAPL', 'MSFT']  # Add more tickers as needed
+    
+    for ticker in tickers:
+        print(f"Training SARIMAX model for {ticker}...")
+        data = fetch_historical_data(ticker)
+        if data is None or data.empty:
+            print(f"No data found for {ticker}. Skipping...")
+            continue
+        
+        processed_data = preprocess_data(data)
+        if processed_data is None:
+            print(f"Error preprocessing data for {ticker}. Skipping...")
+            continue
+        
+        sarimax_model = train_sarimax_model(processed_data)
+        if sarimax_model is not None:
+            save_sarimax_model(sarimax_model, ticker)
+        else:
+            print(f"Failed to train SARIMAX model for {ticker}. Skipping...")
+        
+        print()
+
+    print("SARIMAX model training completed.")
+
+app.py
+from flask import Flask, request, jsonify
+import pandas as pd
+import pickle
+from pymongo import MongoClient
+from datetime import datetime, timedelta
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+import warnings
+
+app = Flask(__name__)
+
+# Suppress warnings
+warnings.filterwarnings("ignore")
+
+# Function to load SARIMAX models from pickle files
+def load_models():
+    tickers = ['AAPL', 'MSFT']  # Add more tickers as needed
+    models = {}
+    for ticker in tickers:
+        try:
+            with open(f'models/{ticker}_sarimax_model.pkl', 'rb') as f:
+                model = pickle.load(f)
+                models[ticker] = model
+                print(f"Loaded SARIMAX model for {ticker}.")
+        except Exception as e:
+            print(f"Error loading SARIMAX model for {ticker}: {str(e)}")
+    return models
+
+# Function to fetch historical data from MongoDB
+def fetch_historical_data(ticker):
+    try:
+        client = MongoClient('mongodb://localhost:27017/')
+        db = client['stockdata']
+        collection = db['daily_price']
+        cursor = collection.find({'Ticker': ticker})
+        df = pd.DataFrame(list(cursor))
+        client.close()
+        return df
+    except Exception as e:
+        print(f"Error fetching historical data for {ticker}: {str(e)}")
+        return None
+
+# Function to preprocess data for SARIMAX model prediction
+def preprocess_data_for_sarimax(df):
+    try:
+        df['Date'] = pd.to_datetime(df['Date'])
+        df.set_index('Date', inplace=True)
+        df.sort_index(inplace=True)
+        return df[['Open', 'High', 'Low', 'Close', 'Volume']]
+    except Exception as e:
+        print(f"Error preprocessing data for SARIMAX model: {str(e)}")
+        return None
+
+# Function to predict stock prices using SARIMAX model
+def predict_adj_close_prices(model, latest_data, days_ahead):
+    try:
+        ts = preprocess_data_for_sarimax(latest_data)
+        if ts is None:
+            print("Preprocessed data is None.")
+            return None
+        
+        # Ensure exog_vars aligns with the forecast length
+        exog_vars = ts[-days_ahead:]
+
+        # Forecast using SARIMAX with exogenous variables
+        forecast = model.get_forecast(steps=days_ahead, exog=exog_vars)
+        predicted_adj_close = forecast.predicted_mean.values
+
+        today = datetime.now().date()
+        target_dates = [(today + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(1, days_ahead + 1)]
+        predictions = {target_dates[i]: predicted_adj_close[i] for i in range(days_ahead)}
+        return predictions
+    
+    except Exception as e:
+        print(f"Error predicting stock prices using SARIMAX model: {str(e)}")
+        return None
+
+# Load SARIMAX models on application startup
+models = load_models()
+
+@app.route('/predict/next_month', methods=['POST'])
+def predict_next_month():
+    ticker = request.json['ticker']
+    
+    try:
+        if ticker not in models:
+            return jsonify({'error': f'Model for {ticker} not found.'}), 404
+        
+        # Fetch historical data
+        historical_data = fetch_historical_data(ticker)
+        if historical_data is None or historical_data.empty:
+            return jsonify({'error': f'Failed to fetch historical data for {ticker}.'}), 500
+        
+        # Predict next month's Adj Close prices using SARIMAX model
+        predictions = predict_adj_close_prices(models[ticker], historical_data, days_ahead=30)
+        
+        if predictions is not None:
+            return jsonify({'ticker': ticker, 'predictions': predictions})
+        else:
+            return jsonify({'error': 'Failed to predict stock prices.'}), 500
+    
+    except KeyError as ke:
+        return jsonify({'error': f'Missing or incorrect parameter: {str(ke)}'}), 400
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
+Give me the code to choose best order and seasonal order to produce accurate results
+
+
+
+
+
+
+
+
+
 import pandas as pd
 from datetime import datetime
 from pymongo import MongoClient

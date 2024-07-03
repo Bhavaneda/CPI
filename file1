@@ -1,3 +1,206 @@
+import itertools
+import pandas as pd
+from datetime import datetime
+from pymongo import MongoClient
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+from statsmodels.tsa.vector_ar.var_model import VAR
+from sklearn.metrics import mean_squared_error
+import numpy as np
+import warnings
+import matplotlib.pyplot as plt
+
+warnings.filterwarnings("ignore")
+
+# MongoDB connection setup
+client = MongoClient('mongodb://localhost:27017/')
+db = client['stockdata']
+collection = db['daily_price']
+
+def fetch_data_from_mongodb(ticker):
+    cursor = collection.find({'Ticker': ticker})
+    df = pd.DataFrame(list(cursor))
+    return df
+
+def preprocess_data(df):
+    df['Date'] = pd.to_datetime(df['Date'], format='%Y-%m-%d')
+    df.set_index('Date', inplace=True)
+    df.sort_index(inplace=True)
+    df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']] = np.log1p(df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']])
+    return df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]
+
+def split_train_test(data, split_date):
+    split_date = pd.to_datetime(split_date)
+    train = data[data.index <= split_date]
+    test = data[data.index > split_date]
+    return train, test
+
+def create_exog_vars(data):
+    exog_vars = data[['Open', 'High', 'Low', 'Close', 'Volume']]
+    exog_vars['Open_lag'] = exog_vars['Open'].shift(1)
+    exog_vars['Close_lag'] = exog_vars['Close'].shift(1)
+    exog_vars['Volume_lag'] = exog_vars['Volume'].shift(1)
+    exog_vars['Rolling_Mean_5'] = exog_vars['Close'].rolling(window=5).mean()
+    exog_vars['Rolling_Std_5'] = exog_vars['Close'].rolling(window=5).std()
+    exog_vars['Rolling_Mean_10'] = exog_vars['Close'].rolling(window=10).mean()
+    exog_vars['Rolling_Std_10'] = exog_vars['Close'].rolling(window=10).std()
+    exog_vars = exog_vars.dropna()
+    return exog_vars
+
+def tune_sarima_model(train_data):
+    p = d = q = range(0, 3)
+    pdq = list(itertools.product(p, d, q))
+    seasonal_pdq = [(x[0], x[1], x[2], 7) for x in pdq]
+    
+    best_aic = float('inf')
+    best_order = None
+    best_seasonal_order = None
+    
+    for param in pdq:
+        for param_seasonal in seasonal_pdq:
+            try:
+                mod = SARIMAX(train_data['Adj Close'], 
+                              order=param, 
+                              seasonal_order=param_seasonal,
+                              enforce_stationarity=False,
+                              enforce_invertibility=False)
+                results = mod.fit(disp=False)
+                
+                if results.aic < best_aic:
+                    best_aic = results.aic
+                    best_order = param
+                    best_seasonal_order = param_seasonal
+            except:
+                continue
+                
+    return best_order, best_seasonal_order
+
+def tune_sarimax_model(train_data, exog_vars):
+    p = d = q = range(0, 3)
+    pdq = list(itertools.product(p, d, q))
+    seasonal_pdq = [(x[0], x[1], x[2], 7) for x in pdq]
+    
+    best_aic = float('inf')
+    best_order = None
+    best_seasonal_order = None
+    
+    for param in pdq:
+        for param_seasonal in seasonal_pdq:
+            try:
+                mod = SARIMAX(train_data['Adj Close'], 
+                              exog=exog_vars,
+                              order=param, 
+                              seasonal_order=param_seasonal,
+                              enforce_stationarity=False,
+                              enforce_invertibility=False)
+                results = mod.fit(disp=False)
+                
+                if results.aic < best_aic:
+                    best_aic = results.aic
+                    best_order = param
+                    best_seasonal_order = param_seasonal
+            except:
+                continue
+                
+    return best_order, best_seasonal_order
+
+def train_sarima_model(train_data, order, seasonal_order):
+    model = SARIMAX(train_data['Adj Close'], 
+                    order=order, 
+                    seasonal_order=seasonal_order,
+                    enforce_stationarity=False,
+                    enforce_invertibility=False)
+    results = model.fit(disp=False)
+    return results
+
+def train_sarimax_model(train_data, exog_vars, order, seasonal_order):
+    model = SARIMAX(train_data['Adj Close'], 
+                    exog=exog_vars,
+                    order=order, 
+                    seasonal_order=seasonal_order,
+                    enforce_stationarity=False,
+                    enforce_invertibility=False)
+    results = model.fit(disp=False)
+    return results
+
+def forecast_sarima_model(model, steps):
+    forecast = model.get_forecast(steps=steps)
+    forecast_index = pd.date_range(start=model.data.dates[-1], periods=steps + 1, freq='B')[1:]
+    forecast_df = pd.DataFrame({'Forecast': forecast.predicted_mean}, index=forecast_index)
+    return forecast_df
+
+def forecast_sarimax_model(model, exog_vars, steps):
+    forecast = model.get_forecast(steps=steps, exog=exog_vars.iloc[-steps:])
+    forecast_index = pd.date_range(start=model.data.dates[-1], periods=steps + 1, freq='B')[1:]
+    forecast_df = pd.DataFrame({'Forecast': forecast.predicted_mean}, index=forecast_index)
+    return forecast_df
+
+def train_var_model(train_data):
+    model = VAR(train_data)
+    results = model.fit(ic='aic')
+    return results
+
+def forecast_var_model(model, steps):
+    forecast = model.forecast(model.endog, steps=steps)
+    forecast_index = pd.date_range(start=model.data.dates[-1], periods=steps + 1, freq='B')[1:]
+    forecast_df = pd.DataFrame(forecast, index=forecast_index, columns=model.endog_names)
+    return forecast_df[['Adj Close']]
+
+def main():
+    ticker = 'AAPL'  # Example ticker
+    data = fetch_data_from_mongodb(ticker)
+    data = preprocess_data(data)
+    
+    train_data, test_data = split_train_test(data, '2024-06-03')
+
+    exog_vars = create_exog_vars(train_data)
+    test_exog_vars = create_exog_vars(test_data)
+    
+    # SARIMA Model
+    sarima_order, sarima_seasonal_order = tune_sarima_model(train_data)
+    sarima_model = train_sarima_model(train_data, sarima_order, sarima_seasonal_order)
+    sarima_forecast = forecast_sarima_model(sarima_model, len(test_data))
+    
+    # SARIMAX Model
+    sarimax_order, sarimax_seasonal_order = tune_sarimax_model(train_data, exog_vars)
+    sarimax_model = train_sarimax_model(train_data, exog_vars, sarimax_order, sarimax_seasonal_order)
+    sarimax_forecast = forecast_sarimax_model(sarimax_model, test_exog_vars, len(test_data))
+    
+    # VAR Model
+    var_model = train_var_model(train_data)
+    var_forecast = forecast_var_model(var_model, len(test_data))
+    
+    # Reverting log transformation
+    test_data = np.expm1(test_data['Adj Close'])
+    sarima_forecast = np.expm1(sarima_forecast['Forecast'])
+    sarimax_forecast = np.expm1(sarimax_forecast['Forecast'])
+    var_forecast = np.expm1(var_forecast['Adj Close'])
+    
+    # Plotting results
+    plt.figure(figsize=(12, 6))
+    plt.plot(test_data, label='Actual Adj Close')
+    plt.plot(sarima_forecast, label='SARIMA Forecast')
+    plt.plot(sarimax_forecast, label='SARIMAX Forecast')
+    plt.plot(var_forecast, label='VAR Forecast')
+    plt.legend()
+    plt.title(f'{ticker} Stock Price Forecast')
+    plt.show()
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 import pandas as pd
 from datetime import datetime
 from pymongo import MongoClient

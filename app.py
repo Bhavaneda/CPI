@@ -1,3 +1,194 @@
+from pymongo import MongoClient
+import pickle
+import pandas as pd
+import numpy as np
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import StandardScaler
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+import warnings
+warnings.filterwarnings("ignore")
+
+def fetch_data(ticker):
+    client = MongoClient('mongodb://localhost:27017/')
+    db = client['stockdata']
+    collection = db['daily_price']
+    cursor = collection.find({'company_name': ticker})
+    df = pd.DataFrame(list(cursor))
+    client.close()
+    return df
+
+def preprocess_data(df):
+    df['date'] = pd.to_datetime(df['date'])
+    df.set_index('date', inplace=True)
+    df.sort_index(inplace=True)
+    return df
+
+def train_random_forest_models(df):
+    models = {}
+    features = ['open', 'high', 'low', 'close', 'volume']
+    
+    for feature in features:
+        X = df.drop(columns=['adjusted_close', feature])
+        y = df[feature]
+        model = RandomForestRegressor(n_estimators=100)
+        model.fit(X, y)
+        models[feature] = model
+    
+    return models
+
+def train_sarimax_model(df, exog_vars, order=(1, 1, 1), seasonal_order=(1, 1, 1, 12)):
+    try:
+        sc = StandardScaler()
+        df[exog_vars] = sc.fit_transform(df[exog_vars])
+        df['adjusted_close'] = sc.fit_transform(df[['adjusted_close']])
+        
+        model = SARIMAX(df['adjusted_close'], exog=df[exog_vars], order=order, seasonal_order=seasonal_order, enforce_invertibility=False, enforce_stationarity=False)
+        model_fit = model.fit(disp=0)
+        return model_fit
+    
+    except Exception as e:
+        print(f"Error training SARIMAX model: {str(e)}")
+        return None
+
+def save_model(model, model_name):
+    try:
+        with open(f'models/{model_name}.pkl', 'wb') as f:
+            pickle.dump(model, f)
+        print(f"Saved {model_name}.")
+    except Exception as e:
+        print(f"Error saving {model_name}: {str(e)}")
+
+if __name__ == '__main__':
+    tickers = ['AAPL']
+    
+    for ticker in tickers:
+        print(f"Training models for {ticker}...")
+        data = fetch_data(ticker)
+        if data is None or data.empty:
+            print(f"No data found for {ticker}. Skipping...")
+            continue
+        
+        processed_data = preprocess_data(data)
+        if processed_data is None:
+            print(f"Error preprocessing data for {ticker}. Skipping...")
+            continue
+        
+        # Train Random Forest models for stock attributes
+        rf_models = train_random_forest_models(processed_data)
+        for feature, model in rf_models.items():
+            save_model(model, f'{ticker}_{feature}_rf_model')
+        
+        # Train SARIMAX model for adjusted_close
+        exog_vars = ['open', 'high', 'low', 'close', 'volume']
+        sarimax_model = train_sarimax_model(processed_data, exog_vars)
+        if sarimax_model is not None:
+            save_model(sarimax_model, f'{ticker}_sarimax_model')
+        else:
+            print(f"Failed to train SARIMAX model for {ticker}. Skipping...")
+        
+        print()
+
+    print("Model training completed.")
+
+
+
+
+
+
+
+
+from flask import Flask, request, jsonify
+import pandas as pd
+import numpy as np
+import pickle
+from pymongo import MongoClient
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+from sklearn.ensemble import RandomForestRegressor
+import warnings
+
+warnings.filterwarnings("ignore")
+
+app = Flask(__name__)
+
+def load_model(model_name):
+    try:
+        with open(f'models/{model_name}.pkl', 'rb') as f:
+            model = pickle.load(f)
+        return model
+    except Exception as e:
+        print(f"Error loading {model_name}: {str(e)}")
+        return None
+
+def fetch_data(ticker):
+    client = MongoClient('mongodb://localhost:27017/')
+    db = client['stockdata']
+    collection = db['daily_price']
+    cursor = collection.find({'company_name': ticker})
+    df = pd.DataFrame(list(cursor))
+    client.close()
+    return df
+
+def preprocess_data(df):
+    df['date'] = pd.to_datetime(df['date'])
+    df.set_index('date', inplace=True)
+    df.sort_index(inplace=True)
+    return df
+
+@app.route('/predict', methods=['POST'])
+def predict():
+    data = request.json
+    ticker = data.get('ticker')
+
+    if not ticker:
+        return jsonify({"error": "Ticker not provided"}), 400
+
+    # Load models
+    rf_models = {}
+    for feature in ['open', 'high', 'low', 'close', 'volume']:
+        model = load_model(f'{ticker}_{feature}_rf_model')
+        if model:
+            rf_models[feature] = model
+        else:
+            return jsonify({"error": f"Model for {feature} not found"}), 400
+
+    sarimax_model = load_model(f'{ticker}_sarimax_model')
+    if sarimax_model is None:
+        return jsonify({"error": "SARIMAX model not found for ticker"}), 400
+
+    try:
+        data = fetch_data(ticker)
+        if data is None or data.empty:
+            return jsonify({"error": f"No data found for {ticker}"}), 400
+
+        df = preprocess_data(data)
+
+        # Predict today's stock attributes
+        X_today = df.drop(columns=['adjusted_close']).iloc[-1].values.reshape(1, -1)
+        predictions = {feature: model.predict(X_today)[0] for feature, model in rf_models.items()}
+
+        # Prepare exogenous variables for SARIMAX prediction
+        exog_vars = np.array([predictions[feature] for feature in ['open', 'high', 'low', 'close', 'volume']]).reshape(1, -1)
+
+        # Forecast adjusted_close using SARIMAX
+        forecast = sarimax_model.get_forecast(steps=1, exog=exog_vars)
+        adj_close_forecast = forecast.predicted_mean.iloc[0]
+
+        predictions['adjusted_close'] = adj_close_forecast
+        return jsonify(predictions)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
+
+
+
+
+
+
+
+
 import pandas as pd
 import numpy as np
 from pymongo import MongoClient

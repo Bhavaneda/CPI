@@ -1,3 +1,15 @@
+def adjust_exog_variables(exog_vars, train_data):
+    for col in ['Open_lag', 'Close_lag']:
+        last_change = train_data[col.replace('_lag', '')].diff().iloc[-1]  # Calculate the last change
+        last_value = train_data[col.replace('_lag', '')].iloc[-1]          # Get the last value
+        adjustment_factor = 1 + (last_change / last_value)  # Calculate adjustment factor
+        exog_vars[col] = exog_vars[col] * adjustment_factor  # Apply adjustment
+    return exog_vars
+
+
+
+
+
 from pymongo import MongoClient
 import pickle
 import pandas as pd

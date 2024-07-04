@@ -1,3 +1,107 @@
+import pandas as pd
+from pymongo import MongoClient
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+import pickle
+import os
+import warnings
+import numpy as np
+
+# Suppress warnings
+warnings.filterwarnings("ignore")
+
+def fetch_data_from_mongodb(ticker):
+    client = MongoClient('mongodb://localhost:27017/')
+    db = client['stockdata']
+    collection = db['daily_price']
+    cursor = collection.find({'Ticker': ticker})
+    df = pd.DataFrame(list(cursor))
+    client.close()
+    return df
+
+def preprocess_data(df):
+    df['Date'] = pd.to_datetime(df['Date'])
+    df.set_index('Date', inplace=True)
+    df.sort_index(inplace=True)
+    
+    df['Open_lag'] = df['Open'].shift(1)
+    df['Close_lag'] = df['Close'].shift(1)
+    df.dropna(inplace=True)
+    
+    return df[['Adj Close', 'Open_lag', 'Close_lag']]
+def create_exog_vars(data):
+    exog_vars = data[['Open', 'Close']].copy()
+    exog_vars['Open_lag'] = exog_vars['Open'].shift(1)
+    exog_vars['Close_lag'] = exog_vars['Close'].shift(1)
+    exog_vars = exog_vars.dropna()
+    return exog_vars
+
+def adjust_exog_variables(exog_vars, train_data):
+    for col in ['Open_lag', 'Close_lag']:
+        last_change = train_data[col.replace('_lag', '')].diff().iloc[-1]
+        last_value = train_data[col.replace('_lag', '')].iloc[-1]
+        adjustment_factor = 1 + (last_change / last_value)
+        exog_vars[col] = exog_vars[col] * adjustment_factor
+    return exog_vars
+def train_sarimax_model(ticker, df, order=(1, 1, 1), seasonal_order=(1, 1, 1, 7)):
+    try:
+        train_exog = create_exog_vars(df)
+        model = SARIMAX(df['Adj Close'], exog=train_exog[['Open_lag', 'Close_lag']], order=order, seasonal_order=seasonal_order, enforce_stationarity=False)
+        fitted_model = model.fit(disp=False)
+        os.makedirs('models', exist_ok=True)
+        with open(f'models/{ticker}_sarimax_model.pkl', 'wb') as f:
+            pickle.dump(fitted_model, f)
+        print(f"SARIMAX model trained and saved successfully for {ticker}.")
+    except Exception as e:
+        print(f"Error training SARIMAX model for {ticker}: {str(e)}")
+def forecast_sarimax_model(ticker, model, df, forecast_days=30):
+    forecast = []
+    exog_vars = create_exog_vars(df)
+    adjusted_exog_vars = adjust_exog_variables(exog_vars, df.loc[exog_vars.index])
+
+    for day in range(forecast_days):
+        forecast_input = adjusted_exog_vars.iloc[-1].values.reshape(1, -1)  # Use the last adjusted exog values
+        prediction = model.get_forecast(steps=1, exog=forecast_input)
+        forecast_value = prediction.predicted_mean.iloc[0]
+
+        # Save the forecast value
+        forecast.append(forecast_value)
+
+        # Update exogenous variables for the next step
+        new_row = pd.Series({
+            'Open': adjusted_exog_vars['Open'].iloc[-1] * (1 + np.random.normal(0, 0.01)),  # Random walk for Open
+            'Close': forecast_value,  # Use the forecast value as Close
+            'Open_lag': adjusted_exog_vars['Open'].iloc[-1],
+            'Close_lag': adjusted_exog_vars['Close'].iloc[-1]
+        }, name=df.index[-1] + pd.Timedelta(days=1))
+        
+        adjusted_exog_vars = adjusted_exog_vars.append(new_row)
+
+        # Adjust exogenous variables again
+        adjusted_exog_vars = adjust_exog_variables(adjusted_exog_vars, df.loc[adjusted_exog_vars.index])
+    
+    return forecast
+
+# Load the trained model and forecast
+if __name__ == '__main__':
+    tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'F', 'CAT', 'TCS.NS', 'WFC', 'TATASTEEL.NS', 'NFLX', 'RS', 'JPM', 'TSLA']
+    for ticker in tickers:
+        data = fetch_data_from_mongodb(ticker)
+        ts = preprocess_data(data)
+        train_sarimax_model(ticker, ts)
+        
+        with open(f'models/{ticker}_sarimax_model.pkl', 'rb') as f:
+            model = pickle.load(f)
+        
+        forecasted_values = forecast_sarimax_model(ticker, model, ts)
+        print(f"Forecasted values for {ticker}:", forecasted_values)
+
+
+
+
+
+
+
+
 def adjust_exog_variables(exog_vars, train_data):
     for col in ['Open_lag', 'Close_lag']:
         last_change = train_data[col.replace('_lag', '')].diff().iloc[-1]  # Calculate the last change

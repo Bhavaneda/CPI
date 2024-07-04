@@ -1,3 +1,114 @@
+import numpy as np
+import pandas as pd
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+import matplotlib.pyplot as plt
+
+# Function to calculate the adjustment factor based on the average of the last 30 days
+def calculate_adjustment_factor(train_data, forecast_values, window=30):
+    recent_data = pd.concat([train_data['Close'], forecast_values]).iloc[-window:]
+    last_changes = recent_data.diff().dropna()
+    avg_change = last_changes.mean()
+    last_value = recent_data.iloc[-1]
+    adjustment_factor = 1 + (avg_change / last_value)
+    return adjustment_factor
+
+# Function to forecast with SARIMAX model
+def forecast_sarimax_model(model, train_data, steps):
+    forecasts = []
+    forecast_values = pd.Series(dtype=float)
+    
+    for _ in range(steps):
+        current_exog = train_data[['Close']].iloc[[-1]]
+        forecast = model.get_forecast(exog=current_exog)
+        forecast_value = forecast.predicted_mean.values[0]
+        forecasts.append(forecast_value)
+        
+        # Update forecast values
+        forecast_values = forecast_values.append(pd.Series([forecast_value]))
+        
+        # Recalculate adjustment factor based on the last 30 days
+        adjustment_factor = calculate_adjustment_factor(train_data, forecast_values)
+        
+        # Adjust exog variables for the next forecast
+        adjusted_exog = train_data[['Close']].iloc[[-1]] * adjustment_factor
+        train_data = train_data.append(pd.DataFrame({'Close': [forecast_value]}, index=[train_data.index[-1] + pd.Timedelta(days=1)]))
+    
+    return forecasts
+
+# Validate models function (with SARIMAX adjustments)
+def validate_models(ticker, split_date, sarimax_order=(1, 1, 1), sarimax_seasonal_order=(1, 1, 1, 7), var_lag_order=8):
+    try:
+        df = fetch_data_from_mongodb(ticker)
+        ts = preprocess_data(df)
+        
+        if 'Close' not in ts.columns:
+            raise ValueError(f"Column 'Close' not found in data for {ticker}. Available columns: {ts.columns}")
+        
+        train_data, test_data = split_train_test(ts, split_date)
+        
+        # Train SARIMAX model using Close as exog variable
+        exog_vars = train_data[['Close']]
+        sarimax_model = train_sarimax_model(train_data, exog_vars, sarimax_order, sarimax_seasonal_order)
+        sarimax_forecast = forecast_sarimax_model(sarimax_model, train_data, steps=len(test_data))
+        
+        # Align forecasts with test data index
+        sarimax_forecast = pd.Series(sarimax_forecast, index=test_data.index)
+
+        # Print actual and predicted values for the test set
+        print(f"Actual and Predicted Values for {ticker}:")
+        print("Date\t\tActual\t\tSARIMAX")
+        for idx in range(len(test_data)):
+            date = test_data.index[idx]
+            actual_value = test_data.iloc[idx]['Adj Close']
+            sarimax_pred = sarimax_forecast.iloc[idx] if idx < len(sarimax_forecast) else np.nan
+            print(f"{date}\t{actual_value:.2f}\t{sarimax_pred:.2f}")
+        
+        print()
+        # Check indices order
+        print("Training set:")
+        print(train_data.index.min(), train_data.index.max())
+        print("Test set:")
+        print(test_data.index.min(), test_data.index.max())
+
+        # Plotting the actual and forecasted values
+        plt.figure(figsize=(12, 6))
+        plt.plot(test_data.index, test_data['Adj Close'], label='Actual')
+        plt.plot(test_data.index, sarimax_forecast, label='SARIMAX Forecast')
+        plt.title(f"{ticker} - Actual vs Forecasted Prices")
+        plt.xlabel('Date')
+        plt.ylabel('Adj Close Price')
+        plt.legend()
+        plt.grid(True)
+        plt.show()
+
+        # Evaluate models
+        sarimax_rmse = evaluate_rmse(test_data['Adj Close'], sarimax_forecast)
+        sarimax_mape = evaluate_mape(test_data['Adj Close'], sarimax_forecast)
+        sarimax_accuracy = evaluate_accuracy(test_data['Adj Close'], sarimax_forecast)
+
+        print(f"Validation results for {ticker}:")
+        print(f"SARIMAX RMSE: {sarimax_rmse}")
+        print(f"SARIMAX MAPE: {sarimax_mape}")
+        print(f"SARIMAX Accuracy: {sarimax_accuracy}%")
+
+    except ValueError as e:
+        print(f"ValueError: {str(e)}")
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
+
+ticker = 'AAPL'
+split_date = '2024-06-03'
+validate_models(ticker, split_date)
+
+
+
+
+
+
+
+
+
+
 import pandas as pd
 from datetime import datetime
 from pymongo import MongoClient

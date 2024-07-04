@@ -2,6 +2,199 @@ import pandas as pd
 from datetime import datetime
 from pymongo import MongoClient
 from statsmodels.tsa.statespace.sarimax import SARIMAX
+from statsmodels.tsa.vector_ar.var_model import VAR
+from sklearn.metrics import mean_squared_error
+import numpy as np
+import warnings
+import matplotlib.pyplot as plt
+
+warnings.filterwarnings("ignore")
+
+# MongoDB connection setup
+client = MongoClient('mongodb://localhost:27017/')
+db = client['stockdata']
+collection = db['daily_price']
+
+def fetch_data_from_mongodb(ticker):
+    cursor = collection.find({'Ticker': ticker})
+    df = pd.DataFrame(list(cursor))
+    return df
+
+def preprocess_data(df):
+    df['Date'] = pd.to_datetime(df['Date'], format='%Y-%m-%d')
+    df.set_index('Date', inplace=True)
+    df.sort_index(inplace=True)
+    return df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']]
+
+def split_train_test(data, split_date):
+    split_date = pd.to_datetime(split_date)
+    train = data[data.index <= split_date]
+    test = data[data.index > split_date]
+    return train, test
+
+def create_exog_vars(data):
+    exog_vars = data[['Open', 'Close']].copy()
+    exog_vars['Open_lag'] = exog_vars['Open'].shift(1)
+    exog_vars['Close_lag'] = exog_vars['Close'].shift(1)
+    exog_vars = exog_vars.dropna()
+    return exog_vars
+
+def adjust_exog_variables(exog_vars, train_data):
+    for col in ['Open_lag', 'Close_lag']:
+        if col.replace('_lag', '') in train_data.columns:
+            last_change = train_data[col.replace('_lag', '')].diff().mean()
+            last_value = train_data[col.replace('_lag', '')].iloc[-1]
+            adjustment_factor = 1 + (last_change / last_value) if last_value != 0 else 1
+            exog_vars[col] = exog_vars[col] * adjustment_factor
+    return exog_vars
+
+def train_sarimax_model(train_data, exog_vars, order=(1, 1, 1), seasonal_order=(1, 1, 1, 7)):
+    sarimax_model = SARIMAX(train_data['Adj Close'], exog=exog_vars[['Open_lag', 'Close_lag']], order=order, seasonal_order=seasonal_order, enforce_stationarity=False)
+    sarimax_fit = sarimax_model.fit(disp=False)
+    return sarimax_fit
+
+def forecast_sarimax_model(model, train_exog, steps):
+    forecasts = []
+    current_exog = train_exog.iloc[[-1]].copy()  # Start with the last available exog variables
+    
+    for _ in range(steps):
+        forecast = model.get_forecast(exog=current_exog[['Open_lag', 'Close_lag']])
+        forecasts.append(forecast.predicted_mean.values[0])
+        
+        # Adjust exog variables for the next forecast
+        for col in ['Open_lag', 'Close_lag']:
+            if col in train_exog.columns:
+                last_change = train_exog[col].diff().mean()
+                last_value = current_exog[col].iloc[-1]
+                adjustment_factor = 1 + (last_change / last_value) if last_value != 0 else 1
+                current_exog[col] = current_exog[col] * adjustment_factor
+    
+    return forecasts
+
+def train_var_model(train_data, lag_order=8):
+    var_model = VAR(train_data)
+    var_fit = var_model.fit(lag_order)
+    return var_fit
+
+def forecast_var_model(model, test_data):
+    forecast = model.forecast(test_data.values, steps=len(test_data))
+    return forecast[:, 4]
+
+def evaluate_rmse(actual, forecast):
+    mask = ~np.isnan(actual) & (actual != 0)
+    actual_filtered = actual[mask]
+    forecast_filtered = forecast[mask]
+    return mean_squared_error(actual_filtered, forecast_filtered, squared=False)
+
+def evaluate_mape(actual, forecast):
+    mask = ~np.isnan(actual) & (actual != 0)
+    actual_filtered = actual[mask]
+    forecast_filtered = forecast[mask]
+    if len(actual_filtered) == 0:
+        return np.nan
+    return (np.abs((actual_filtered - forecast_filtered) / actual_filtered).mean()) * 100
+
+def evaluate_accuracy(actual, forecast):
+    mape = evaluate_mape(actual, forecast)
+    if np.isnan(mape):
+        return np.nan
+    return 100 - mape
+
+def validate_models(ticker, split_date, sarimax_order=(1, 1, 1), sarimax_seasonal_order=(1, 1, 1, 7), var_lag_order=8):
+    try:
+        df = fetch_data_from_mongodb(ticker)
+        ts = preprocess_data(df)
+        
+        if 'Close' not in ts.columns or 'Open' not in ts.columns:
+            raise ValueError(f"Columns 'Open' or 'Close' not found in data for {ticker}. Available columns: {ts.columns}")
+        
+        train_data, test_data = split_train_test(ts, split_date)
+        
+        # Create exogenous variables from training data
+        train_exog = create_exog_vars(train_data)
+        
+        # Adjust exogenous variables
+        train_exog = adjust_exog_variables(train_exog, train_data)
+        
+        # Train and forecast SARIMAX model using training data exog
+        sarimax_model = train_sarimax_model(train_data, train_exog, sarimax_order, sarimax_seasonal_order)
+        sarimax_forecast = forecast_sarimax_model(sarimax_model, train_exog, steps=len(test_data))
+        
+        # Train and forecast VAR model
+        var_model = train_var_model(train_data, var_lag_order)
+        var_forecast = forecast_var_model(var_model, test_data)
+
+        # Align forecasts with test data index
+        sarimax_forecast_index = train_data.index[-1] + pd.DateOffset(days=1)
+        var_forecast_index = test_data.index
+
+        # Print actual and predicted values for the test set
+        print(f"Actual and Predicted Values for {ticker}:")
+        print("Date\t\tActual\t\tSARIMAX\t\tVAR")
+        for idx in range(len(test_data)):
+            date = test_data.index[idx]
+            actual_value = test_data.iloc[idx]['Adj Close']
+            sarimax_pred = sarimax_forecast[idx]
+            var_pred = var_forecast[idx]
+            print(f"{date}\t{actual_value:.2f}\t{sarimax_pred:.2f}\t{var_pred:.2f}")
+        
+        print()
+        # Check indices order
+        print("Training set:")
+        print(train_data.index.min(), train_data.index.max())
+        print("Test set:")
+        print(test_data.index.min(), test_data.index.max())
+
+        # Plotting the actual and forecasted values
+        plt.figure(figsize=(12, 6))
+        plt.plot(test_data.index, test_data['Adj Close'], label='Actual')
+        plt.plot(test_data.index, sarimax_forecast_index, label='SARIMAX Forecast')
+        plt.plot(test_data.index, var_forecast_index, label='VAR Forecast')
+        plt.title(f"{ticker} - Actual vs Forecasted Prices")
+        plt.xlabel('Date')
+        plt.ylabel('Adj Close Price')
+        plt.legend()
+        plt.grid(True)
+        plt.show()
+
+        # Evaluate models
+        sarimax_rmse = evaluate_rmse(test_data['Adj Close'], sarimax_forecast)
+        sarimax_mape = evaluate_mape(test_data['Adj Close'], sarimax_forecast)
+        sarimax_accuracy = evaluate_accuracy(test_data['Adj Close'], sarimax_forecast)
+        
+        var_rmse = evaluate_rmse(test_data['Adj Close'], var_forecast)
+        var_mape = evaluate_mape(test_data['Adj Close'], var_forecast)
+        var_accuracy = evaluate_accuracy(test_data['Adj Close'], var_forecast)
+
+        print(f"Validation results for {ticker}:")
+        print(f"SARIMAX RMSE: {sarimax_rmse}")
+        print(f"SARIMAX MAPE: {sarimax_mape}")
+        print(f"SARIMAX Accuracy: {sarimax_accuracy}%")
+        print(f"VAR RMSE: {var_rmse}")
+        print(f"VAR MAPE: {var_mape}")
+        print(f"VAR Accuracy: {var_accuracy}%")
+
+    except ValueError as e:
+        print(f"ValueError: {str(e)}")
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
+
+ticker = 'AAPL'
+split_date = '2024-06-03'
+validate_models(ticker, split_date)
+
+
+
+
+
+
+
+
+
+import pandas as pd
+from datetime import datetime
+from pymongo import MongoClient
+from statsmodels.tsa.statespace.sarimax import SARIMAX
 from sklearn.metrics import mean_squared_error
 import numpy as np
 import warnings

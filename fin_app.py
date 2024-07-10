@@ -1,3 +1,32 @@
+// tests/navbarNavigation.spec.js
+const { test, expect } = require('@playwright/test');
+
+test('navigate through navbar menu items', async ({ page }) => {
+  // Navigate to the main page with the navbar
+  await page.goto('http://localhost:3000');
+
+  // Click on the "Search" button in the navbar
+  await Promise.all([
+    page.click('text=Search'),
+    page.waitForURL('**/search'),
+  ]);
+
+  // Verify URL after navigation
+  expect(page.url()).toContain('/search');
+
+  // Click on the "Watchlist" button in the navbar
+  await Promise.all([
+    page.click('text=Watchlist'),
+    page.waitForURL('**/watchlist'),
+  ]);
+
+  // Verify URL after navigation
+  expect(page.url()).toContain('/watchlist');
+});
+
+
+
+
 from flask import Flask, request, jsonify
 import pandas as pd
 import pickle

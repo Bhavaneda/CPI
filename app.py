@@ -1,3 +1,33 @@
+
+// tests/themeToggleOnSearchPage.spec.js
+const { test, expect } = require('@playwright/test');
+
+test('toggle theme on /search page', async ({ page }) => {
+  await page.goto('http://localhost:3000/search');
+
+  // Verify initial state is light mode
+  const typography = page.locator('text=Light Mode');
+  await expect(typography).toBeVisible();
+
+  // Click the switch to toggle to dark mode
+  const toggleSwitch = page.locator('role=switch');
+  await toggleSwitch.click();
+  const darkModeTypography = page.locator('text=Dark Mode');
+  await expect(darkModeTypography).toBeVisible();
+
+  // Click the switch again to toggle back to light mode
+  await toggleSwitch.click();
+  await expect(typography).toBeVisible();
+});
+
+
+
+
+
+
+
+
+
 import numpy as np
 import pandas as pd
 from datetime import datetime

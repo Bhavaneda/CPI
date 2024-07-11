@@ -1,0 +1,229 @@
+// tests/searchComponent.spec.ts
+import { test, expect } from '@playwright/test';
+
+test.describe('Search Component', () => {
+  test.beforeEach(async ({ page }) => {
+    // Navigate to the search page
+    await page.goto('http://localhost:3000/search');
+  });
+
+  test('should show loading indicator and display search results', async ({ page }) => {
+    // Type into the search input
+    await page.fill('#searchInput', 'AAPL');
+
+    // Check if the loading indicator is visible
+    await expect(page.locator('role=circularprogress')).toBeVisible();
+
+    // Wait for search results to appear
+    const resultsLocator = page.locator('role=option');
+    await expect(resultsLocator).toBeVisible();
+
+    // Verify that the search results contain the expected stock
+    await expect(resultsLocator).toContainText('AAPL');
+
+    // Select a search result
+    await resultsLocator.first().click();
+
+    // Check if the Details component appears with the selected stock's ticker
+    const detailsComponent = page.locator('text=AAPL');
+    await expect(detailsComponent).toBeVisible();
+  });
+
+  test('should show no results toast message', async ({ page }) => {
+    // Type into the search input
+    await page.fill('#searchInput', 'UNKNOWN_STOCK');
+
+    // Wait for the no results toast message
+    const toastMessage = page.locator('.Toastify__toast--error');
+    await expect(toastMessage).toContainText('No results found!');
+  });
+
+  test('should handle search input debouncing', async ({ page }) => {
+    // Type quickly into the search input
+    await page.fill('#searchInput', 'AP');
+    await page.fill('#searchInput', 'AAPL');
+
+    // Wait for search results to appear
+    const resultsLocator = page.locator('role=option');
+    await expect(resultsLocator).toBeVisible();
+
+    // Verify that the search results contain the expected stock
+    await expect(resultsLocator).toContainText('AAPL');
+  });
+});
+
+
+
+
+
+
+import { test, expect } from '@playwright/test';
+
+test.describe('Watchlist Component', () => {
+  test.beforeEach(async ({ page }) => {
+    // Navigate to the watchlist page
+    await page.goto('http://localhost:3000/watchlist');
+  });
+
+  test('should add stock to watchlist and display it, then remove it and check if watchlist is empty', async ({ page }) => {
+    // Step 1: Add stock to watchlist
+    await page.evaluate(() => {
+      localStorage.setItem('watchlist', JSON.stringify(['AAPL']));
+    });
+    await page.reload();
+
+    // Step 2: Verify the stock is displayed in the watchlist
+    await page.route('**/api/stock-summary/AAPL', (route) => {
+      route.fulfill({
+        status: 200,
+        body: JSON.stringify({
+          ticker: 'AAPL',
+          companyName: 'Apple Inc.',
+          lastPrice: '145.09',
+          prevClose: '143.00',
+        }),
+      });
+    });
+
+    // Wait for the watchlist to be populated
+    const watchlistCard = page.locator('.shadow-md');
+    await expect(watchlistCard).toHaveCount(1);
+
+    // Verify the stock details are displayed correctly
+    await expect(watchlistCard).toContainText('AAPL');
+    await expect(watchlistCard).toContainText('Apple Inc.');
+    await expect(watchlistCard).toContainText('145.09');
+    await expect(watchlistCard).toContainText('(2.09%)');
+
+    // Step 3: Remove the stock from the watchlist
+    await page.locator('button[title="Remove from watchlist"]').click();
+
+    // Wait for the watchlist to be empty
+    await expect(page.locator('.shadow-md')).toHaveCount(0);
+
+    // Step 4: Verify the "Your Watchlist is empty!" message is displayed
+    await expect(page.locator('text=Your Watchlist is empty!')).toBeVisible();
+  });
+});
+
+
+
+
+
+
+
+
+
+
+
+
+import { test, expect } from '@playwright/test';
+
+test.describe('Navbar Component', () => {
+  test.beforeEach(async ({ page }) => {
+    // Navigate to the home page before each test
+    await page.goto('http://localhost:3000');
+  });
+
+  test('should render the Navbar with all components', async ({ page }) => {
+    // Check if the Navbar is rendered
+    const navbar = page.locator('header');
+    await expect(navbar).toBeVisible();
+
+    // Check if the title is displayed
+    const title = navbar.locator('text=Stock Market');
+    await expect(title).toBeVisible();
+
+    // Check if the menu icon is displayed
+    const menuIcon = navbar.locator('button[aria-label="menu"]');
+    await expect(menuIcon).toBeVisible();
+
+    // Check if the theme switch is displayed
+    const themeSwitch = navbar.locator('input[type="checkbox"]');
+    await expect(themeSwitch).toBeVisible();
+  });
+
+  test('should navigate to the correct paths when menu items are clicked', async ({ page }) => {
+    // Click the menu icon to open the menu
+    await page.click('button[aria-label="menu"]');
+
+    // Click the Search menu item and verify navigation
+    await page.click('text=Search');
+    await expect(page).toHaveURL('http://localhost:3000/search');
+
+    // Navigate back to home
+    await page.goto('http://localhost:3000');
+
+    // Click the menu icon to open the menu
+    await page.click('button[aria-label="menu"]');
+
+    // Click the Watchlist menu item and verify navigation
+    await page.click('text=Watchlist');
+    await expect(page).toHaveURL('http://localhost:3000/watchlist');
+  });
+
+  test('should toggle between light and dark modes', async ({ page }) => {
+    // Check initial theme
+    const appBar = page.locator('header');
+    await expect(appBar).toHaveClass(/bg-green-800/);
+
+    // Toggle the theme switch
+    await page.click('input[type="checkbox"]');
+
+    // Verify the dark mode theme is applied
+    await expect(appBar).toHaveClass(/bg-gray-900/);
+
+    // Toggle the theme switch back
+    await page.click('input[type="checkbox"]');
+
+    // Verify the light mode theme is applied
+    await expect(appBar).toHaveClass(/bg-green-800/);
+  });
+});
+
+
+
+
+
+
+
+import { test, expect } from '@playwright/test';
+
+// Define the test
+test('Stock Tabs Test', async ({ page }) => {
+  // Navigate to your application
+  await page.goto('http://localhost:3000'); // Replace with your actual URL
+
+  // Wait for the page to load
+  await page.waitForLoadState('networkidle');
+
+  // Find and click on the Summary tab
+  await page.click('text=Summary');
+
+  // Wait for the summary content to load
+  await page.waitForSelector('.summary-content');
+
+  // Check if the summary content is visible
+  const summaryVisible = await page.isVisible('.summary-content');
+  expect(summaryVisible).toBeTruthy();
+
+  // Find and click on the Top News tab
+  await page.click('text=Top News');
+
+  // Wait for the news content to load
+  await page.waitForSelector('.news-container');
+
+  // Check if the news content is visible
+  const newsVisible = await page.isVisible('.news-container');
+  expect(newsVisible).toBeTruthy();
+
+  // Find and click on the Charts tab
+  await page.click('text=Charts');
+
+  // Wait for the charts to load
+  await page.waitForSelector('.highcharts-container');
+
+  // Check if the charts are visible
+  const chartsVisible = await page.isVisible('.highcharts-container');
+  expect(chartsVisible).toBeTruthy();
+});

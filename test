@@ -16,7 +16,7 @@ test.describe('Search Component', () => {
       await page.fill('#searchInput', input);
 
       // Check if the loading indicator is visible
-      const loadingIndicator = page.locator('.loading-indicator'); // Use the correct class or ID for your loading indicator
+      const loadingIndicator = page.locator('[role="progressbar"]'); // Adjust the selector to match the actual loading indicator
       await expect(loadingIndicator).toBeVisible();
 
       // Wait for search results to appear
@@ -35,6 +35,12 @@ test.describe('Search Component', () => {
     const detailsComponent = page.locator('text=AAPL');
     await expect(detailsComponent).toBeVisible();
   });
+});
+
+
+
+
+
 
   test('should show no results toast message', async ({ page }) => {
     // Type into the search input

@@ -1,5 +1,59 @@
 import { test, expect } from '@playwright/test';
 
+// Define the test
+test('Stock Tabs Test', async ({ page }) => {
+  // Navigate to the search page
+  await page.goto('http://localhost:3000/search'); // Replace with your actual URL
+
+  // Wait for the page to load
+  await page.waitForLoadState('networkidle');
+
+  // Type a company name into the search input
+  await page.fill('#searchInput', 'Apple'); // Replace with any valid company name or keyword
+
+  // Wait for search suggestions to appear
+  await page.waitForSelector('[role="option"]');
+
+  // Click on the first search suggestion
+  const firstSuggestion = page.locator('[role="option"]').first();
+  await firstSuggestion.click();
+
+  // Wait for the summary content to load
+  await page.waitForSelector('.summary-content');
+
+  // Check if the summary content is visible
+  const summaryVisible = await page.isVisible('.summary-content');
+  expect(summaryVisible).toBeTruthy();
+
+  // Find and click on the Top News tab
+  await page.click('text=Top News');
+
+  // Wait for the news content to load
+  await page.waitForSelector('.news-container');
+
+  // Check if the news content is visible
+  const newsVisible = await page.isVisible('.news-container');
+  expect(newsVisible).toBeTruthy();
+
+  // Find and click on the Charts tab
+  await page.click('text=Charts');
+
+  // Wait for the charts to load
+  await page.waitForSelector('.highcharts-container');
+
+  // Check if the charts are visible
+  const chartsVisible = await page.isVisible('.highcharts-container');
+  expect(chartsVisible).toBeTruthy();
+});
+
+
+
+
+
+
+
+import { test, expect } from '@playwright/test';
+
 test.describe('Theme Switching', () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to the home page before each test

@@ -19,15 +19,27 @@ test.describe('Search Component', () => {
       const loadingIndicator = page.locator('[role="progressbar"]'); // Adjust the selector to match the actual loading indicator
       await expect(loadingIndicator).toBeVisible();
 
+      // Wait for the loading indicator to disappear
+      await expect(loadingIndicator).not.toBeVisible({ timeout: 10000 });
+
       // Wait for search results to appear
       const resultsLocator = page.locator('[role="option"]'); // Use the correct role or selector for search results
-      await expect(resultsLocator).toBeVisible();
+      await expect(resultsLocator.first()).toBeVisible({ timeout: 10000 });
 
-      // Verify that the search results contain the expected company name and ticker
-      await expect(resultsLocator).toContainText('AAPL | Apple Inc');
+      // Verify that at least one search result contains the expected company name and ticker
+      const resultsCount = await resultsLocator.count();
+      let found = false;
+      for (let i = 0; i < resultsCount; i++) {
+        const resultText = await resultsLocator.nth(i).innerText();
+        if (resultText.includes('AAPL | Apple Inc')) {
+          found = true;
+          break;
+        }
+      }
+      expect(found).toBe(true);
     }
 
-    // Select the search result
+    // Select the first search result
     const resultsLocator = page.locator('[role="option"]');
     await resultsLocator.first().click();
 
@@ -36,6 +48,7 @@ test.describe('Search Component', () => {
     await expect(detailsComponent).toBeVisible();
   });
 });
+
 
 
 

@@ -7,6 +7,75 @@ test.describe('Search Component', () => {
     await page.goto('http://localhost:3000/search');
   });
 
+  test('should show loading indicator and display search results progressively', async ({ page }) => {
+    // Define the progressive inputs
+    const progressiveInputs = ['A', 'Ap', 'App', 'Appl', 'Apple'];
+
+    for (const input of progressiveInputs) {
+      // Type into the search input
+      await page.fill('#searchInput', input);
+
+      // Check if the loading indicator is visible
+      const loadingIndicator = page.locator('.loading-indicator'); // Use the correct class or ID for your loading indicator
+      await expect(loadingIndicator).toBeVisible();
+
+      // Wait for search results to appear
+      const resultsLocator = page.locator('[role="option"]'); // Use the correct role or selector for search results
+      await expect(resultsLocator).toBeVisible();
+
+      // Verify that the search results contain the expected company name and ticker
+      await expect(resultsLocator).toContainText('AAPL | Apple Inc');
+    }
+
+    // Select the search result
+    const resultsLocator = page.locator('[role="option"]');
+    await resultsLocator.first().click();
+
+    // Check if the Details component appears with the selected stock's ticker
+    const detailsComponent = page.locator('text=AAPL');
+    await expect(detailsComponent).toBeVisible();
+  });
+
+  test('should show no results toast message', async ({ page }) => {
+    // Type into the search input
+    await page.fill('#searchInput', 'UNKNOWN_COMPANY');
+
+    // Wait for the no results toast message
+    const toastMessage = page.locator('.Toastify__toast--error');
+    await expect(toastMessage).toContainText('No results found!');
+  });
+
+  test('should handle search input debouncing', async ({ page }) => {
+    // Type quickly into the search input
+    await page.fill('#searchInput', 'Ap');
+    await page.fill('#searchInput', 'Apple');
+
+    // Wait for search results to appear
+    const resultsLocator = page.locator('[role="option"]'); // Use the correct role or selector for search results
+    await expect(resultsLocator).toBeVisible();
+
+    // Verify that the search results contain the expected company name and ticker
+    await expect(resultsLocator).toContainText('AAPL | Apple Inc');
+  });
+});
+
+
+
+
+
+
+
+
+
+// tests/searchComponent.spec.ts
+import { test, expect } from '@playwright/test';
+
+test.describe('Search Component', () => {
+  test.beforeEach(async ({ page }) => {
+    // Navigate to the search page
+    await page.goto('http://localhost:3000/search');
+  });
+
   test('should show loading indicator and display search results', async ({ page }) => {
     // Type into the search input
     await page.fill('#searchInput', 'AAPL');

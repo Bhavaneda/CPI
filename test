@@ -1,5 +1,123 @@
 import { test, expect } from '@playwright/test';
 
+test.describe('Search and Watchlist Components', () => {
+  test.beforeEach(async ({ page }) => {
+    // Navigate to the search page
+    await page.goto('http://localhost:3000/search');
+  });
+
+  test('should show loading indicator and display search results progressively, then add to watchlist', async ({ page }) => {
+    // Define the progressive inputs
+    const progressiveInputs = ['A', 'Ap', 'App', 'Appl', 'Apple'];
+
+    for (const input of progressiveInputs) {
+      // Type into the search input
+      await page.fill('#searchInput', input);
+
+      // Check if the loading indicator is visible
+      const loadingIndicator = page.locator('[role="progressbar"]'); // Adjust the selector to match the actual loading indicator
+      await expect(loadingIndicator).toBeVisible();
+
+      // Wait for the loading indicator to disappear
+      await expect(loadingIndicator).not.toBeVisible({ timeout: 10000 });
+
+      // Wait for search results to appear
+      const resultsLocator = page.locator('[role="option"]'); // Use the correct role or selector for search results
+      await expect(resultsLocator.first()).toBeVisible({ timeout: 10000 });
+
+      // Verify that at least one search result contains the expected company name and ticker
+      const resultsCount = await resultsLocator.count();
+      let found = false;
+      for (let i = 0; i < resultsCount; i++) {
+        const resultText = await resultsLocator.nth(i).innerText();
+        if (resultText.includes('AAPL | Apple Inc')) {
+          found = true;
+          break;
+        }
+      }
+      expect(found).toBe(true);
+    }
+
+    // Select the first search result
+    const resultsLocator = page.locator('[role="option"]');
+    await resultsLocator.first().click();
+
+    // Check if the Details component appears with the selected stock's ticker
+    const detailsComponent = page.locator('text=AAPL');
+    await expect(detailsComponent).toBeVisible();
+
+    // Add the stock to the watchlist
+    const addToWatchlistButton = page.locator('button:has-text("Add to Watchlist")'); // Adjust the selector as necessary
+    await addToWatchlistButton.click();
+
+    // Navigate to the watchlist page
+    await page.goto('http://localhost:3000/watchlist');
+
+    // Verify that the watchlist now contains the added item
+    const watchlistItem = page.locator('text=AAPL');
+    await expect(watchlistItem).toBeVisible();
+
+    // Remove the item from the watchlist
+    const removeButton = page.locator('button:has-text("Remove from watchlist")');
+    await removeButton.click();
+
+    // Verify that the watchlist is empty again
+    const emptyWatchlistMessage = page.locator('text=Your Watchlist is empty!');
+    await expect(emptyWatchlistMessage).toBeVisible();
+  });
+});
+
+
+
+
+
+import { test, expect } from '@playwright/test';
+
+test.describe('StockTabs Component', () => {
+  test.beforeEach(async ({ page }) => {
+    // Navigate to the stock page with a specific ticker symbol
+    await page.goto('http://localhost:3000/stock/AAPL'); // Adjust URL as necessary
+  });
+
+  test('should switch between tabs and load content', async ({ page }) => {
+    // Wait for the Summary tab content to load
+    await expect(page.locator('text=Loading summary...')).toBeVisible();
+    await expect(page.locator('text=Loading summary...')).not.toBeVisible({ timeout: 10000 });
+
+    // Verify that summary data is displayed
+    const summaryComponent = page.locator('text=Stock Summary Data'); // Adjust text to match actual summary data
+    await expect(summaryComponent).toBeVisible();
+
+    // Switch to the Top News tab
+    const newsTab = page.locator('text=Top News');
+    await newsTab.click();
+
+    // Wait for the news data to load
+    await expect(page.locator('text=Loading news...')).toBeVisible();
+    await expect(page.locator('text=Loading news...')).not.toBeVisible({ timeout: 10000 });
+
+    // Verify that news data is displayed
+    const newsComponent = page.locator('text=News Component'); // Adjust text to match actual news component
+    await expect(newsComponent).toBeVisible();
+
+    // Switch to the Charts tab
+    const chartsTab = page.locator('text=Charts');
+    await chartsTab.click();
+
+    // Verify that the chart is displayed
+    const chartComponent = page.locator('text=Historical Chart'); // Adjust text to match actual chart component
+    await expect(chartComponent).toBeVisible();
+  });
+});
+
+
+
+
+
+
+
+import { test, expect } from '@playwright/test';
+
 // Define the test
 test('Stock Tabs Test', async ({ page }) => {
   // Navigate to the search page

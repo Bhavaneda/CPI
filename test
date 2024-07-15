@@ -1,5 +1,29 @@
 const { test, expect } = require('@playwright/test');
 
+test('click SVG and verify class change', async ({ page }) => {
+  // Open the URL
+  await page.goto('your-url-here');
+
+  // Locate the parent div containing both the text "AAPL" and the SVG
+  const parentDiv = await page.locator('div.flex.items-start');
+
+  // Locate the specific SVG within the parent div
+  const svg = await parentDiv.locator('svg.abcd');
+
+  // Click the SVG element
+  await svg.click();
+
+  // Verify that the class of the div has changed to "bg-yellow-600"
+  await expect(parentDiv).toHaveClass(/bg-yellow-600/);
+});
+
+
+
+
+
+
+const { test, expect } = require('@playwright/test');
+
 test.describe('SVG Click Test', () => {
   test('should click SVG and verify class change on div', async ({ page }) => {
     // Navigate to the page

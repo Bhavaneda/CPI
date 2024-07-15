@@ -1,5 +1,242 @@
 const { test, expect } = require('@playwright/test');
 
+test('Verify StockTabs button states', async ({ page }) => {
+  // Navigate to your application page
+  await page.goto('your-application-url');
+  
+  // Wait for the <div class="mt-6"> to be visible
+  await page.locator('div.mt-6').waitFor();
+
+  // Locate buttons within the <div class="mt-6">
+  const tabButtons = await page.locator('div.mt-6 button[role="tab"]');
+
+  // Verify the "Summary" button has aria-selected="true" by default
+  const summaryButton = tabButtons.nth(0);
+  await expect(summaryButton).toHaveAttribute('aria-selected', 'true');
+
+  // Verify the other buttons have aria-selected="false" by default
+  const newsButton = tabButtons.nth(1);
+  await expect(newsButton).toHaveAttribute('aria-selected', 'false');
+
+  const chartsButton = tabButtons.nth(2);
+  await expect(chartsButton).toHaveAttribute('aria-selected', 'false');
+
+  // Click on the "Top News" button and verify the state changes
+  await newsButton.click();
+  await expect(newsButton).toHaveAttribute('aria-selected', 'true');
+  await expect(summaryButton).toHaveAttribute('aria-selected', 'false');
+  await expect(chartsButton).toHaveAttribute('aria-selected', 'false');
+
+  // Click on the "Charts" button and verify the state changes
+  await chartsButton.click();
+  await expect(chartsButton).toHaveAttribute('aria-selected', 'true');
+  await expect(summaryButton).toHaveAttribute('aria-selected', 'false');
+  await expect(newsButton).toHaveAttribute('aria-selected', 'false');
+});
+
+
+const { test, expect } = require('@playwright/test');
+
+test('Verify HistoricalChart component', async ({ page }) => {
+  // Mock backend response
+  const mockData = [
+    {
+      date: '2023-01-01',
+      open: 100,
+      high: 120,
+      low: 95,
+      close: 110,
+      volume: 1000000,
+    },
+    {
+      date: '2023-01-02',
+      open: 110,
+      high: 130,
+      low: 105,
+      close: 120,
+      volume: 1200000,
+    },
+    // Add more sample data as needed
+  ];
+
+  // Mock API endpoint response
+  await page.route('**/api/history*', route => {
+    route.fulfill({
+      status: 200,
+      body: mockData,
+    });
+  });
+
+  // Navigate to your application page that contains HistoricalChart
+  await page.goto('http://localhost:3000');
+
+  // Wait for the HistoricalChart component to render
+  await page.waitForSelector('.mt-4');
+
+  // Check if the chart renders with the correct title
+  const chartTitle = await page.textContent('.highcharts-title tspan');
+  expect(chartTitle).toContain('Historical Chart for');
+
+  // Check if the candlestick series renders correctly
+  const candlestickSeries = await page.$('.highcharts-series.highcharts-series-0');
+  expect(candlestickSeries).not.toBeNull();
+
+  // Check if the volume series renders correctly
+  const volumeSeries = await page.$('.highcharts-series.highcharts-series-1');
+  expect(volumeSeries).not.toBeNull();
+
+  // You can add more assertions as needed based on your chart configuration
+
+  // Example of checking the tooltip (if configured)
+  await page.hover('.highcharts-point');
+
+  const tooltipText = await page.textContent('.highcharts-tooltip');
+  expect(tooltipText).toContain('Open:');
+  expect(tooltipText).toContain('High:');
+  expect(tooltipText).toContain('Low:');
+  expect(tooltipText).toContain('Close:');
+
+  // Example of checking loading animation before data is fetched
+  // Ensure loading state is not present (assuming .animate-pulse is only during loading)
+  await page.waitForSelector('.animate-pulse', { state: 'hidden' });
+
+  // Example of waiting for initial data fetch to complete
+  await page.waitForSelector('.highcharts-series');
+
+  // Add more tests as per your application's functionality
+
+});
+
+
+
+const { test, expect } = require('@playwright/test');
+
+test('Verify NewsComponent functionality', async ({ page }) => {
+  // Mock data to simulate backend response
+  const mockNewsData = {
+    articles: [
+      {
+        source: { name: 'Mock News Source' },
+        publishedAt: '2023-07-15T10:30:00Z',
+        title: 'Mock News Title',
+        description: 'Mock news description.',
+        url: 'https://mocknews.com/article',
+        urlToImage: 'https://mocknews.com/images/mock-image.jpg',
+      },
+      // Add more articles as needed
+    ],
+  };
+
+  // Mock API endpoint response for news data
+  await page.route('**/api/news*', route => {
+    route.fulfill({
+      status: 200,
+      body: [mockNewsData],
+    });
+  });
+
+  // Navigate to your React application page containing NewsComponent
+  await page.goto('http://localhost:3000');
+
+  // Wait for NewsComponent to render
+  await page.waitForSelector('.card');
+
+  // Check if the news card displays correctly
+  const newsTitle = await page.textContent('.card .MuiTypography-h6');
+  expect(newsTitle).toContain('Mock News Title');
+
+  // Click on the news card to open modal
+  await page.click('.card');
+
+  // Wait for the modal to open
+  await page.waitForSelector('.modal');
+
+  // Check if modal content is displayed correctly
+  const modalTitle = await page.textContent('.modal .MuiTypography-h5');
+  expect(modalTitle).toContain('Mock News Title');
+
+  // Verify modal elements such as description, publisher, etc.
+  const modalDescription = await page.textContent('.modal .MuiTypography-body1');
+  expect(modalDescription).toContain('Mock news description.');
+
+  // Close the modal
+  await page.click('.modal .MuiIconButton-root');
+
+  // Wait for the modal to close
+  await page.waitForSelector('.modal', { state: 'hidden' });
+
+  // You can add more assertions based on your component's functionality
+
+});
+
+
+const { test, expect } = require('@playwright/test');
+
+test('Verify NewsComponent modal open on click', async ({ page }) => {
+  // Mock data to simulate news component props
+  const mockNewsData = {
+    urlToImage: 'https://www.example.com/image.jpg',
+    description: 'Mock news description.',
+    title: 'Mock News Title',
+    publishedAt: '2023-07-15T10:30:00Z',
+    url: 'https://www.example.com/article',
+    sourceName: 'Mock News Source',
+  };
+
+  // Render the NewsComponent directly with mock props
+  await page.setContent(`
+    <html>
+      <body>
+        <div id="root"></div>
+      </body>
+    </html>
+  `);
+
+  // Inject the NewsComponent with mock props into the page
+  await page.evaluate((mockNewsData) => {
+    const root = document.getElementById('root');
+    const NewsComponent = window.NewsComponent.default;
+
+    ReactDOM.render(
+      <NewsComponent newsData={mockNewsData} />,
+      root
+    );
+  }, mockNewsData);
+
+  // Wait for the NewsComponent to render
+  await page.waitForSelector('.card');
+
+  // Click on the news card to open modal
+  await page.click('.card');
+
+  // Wait for the modal to open
+  await page.waitForSelector('.modal');
+
+  // Check if modal is visible
+  const modalVisible = await page.isVisible('.modal');
+  expect(modalVisible).toBeTruthy();
+
+  // Close the modal
+  await page.click('.modal .MuiIconButton-root');
+
+  // Wait for the modal to close
+  await page.waitForSelector('.modal', { state: 'hidden' });
+
+  // Ensure modal is closed
+  const modalClosed = await page.isVisible('.modal');
+  expect(modalClosed).toBeFalsy();
+});
+
+
+
+
+
+
+
+
+
+const { test, expect } = require('@playwright/test');
+
 test('Verify aria-selected attribute on tab buttons', async ({ page }) => {
   // Navigate to your application page
   await page.goto('your-application-url');

@@ -1,3 +1,26 @@
+const { test, expect } = require('@playwright/test');
+
+test('should add to watchlist and show success message', async ({ page }) => {
+  // Navigate to the page
+  await page.goto('your-application-url');
+
+  // Click the star icon to add to watchlist
+  await page.click('svg[data-testid="StarIcon"]');
+
+  // Wait for the toast notification to appear
+  await page.waitForSelector('div.Toastify__toast', { timeout: 5000 });
+
+  // Get all toast messages and check for the specific text
+  const toastMessages = await page.locator('div.Toastify__toast').allTextContents();
+  const foundToast = toastMessages.some(text => text.includes('Added to watchlist successfully'));
+  expect(foundToast).toBe(true);
+});
+
+
+
+
+
+
 const { chromium, expect } = require('playwright');
 
 (async () => {

@@ -1,5 +1,42 @@
 const { test, expect } = require('@playwright/test');
 
+test('Verify aria-selected attribute on tab buttons', async ({ page }) => {
+  // Navigate to your application page
+  await page.goto('your-application-url');
+  await page.waitForNavigation();
+
+  // Verify default state for Summary button
+  const summaryButton = await page.locator('button[aria-selected="true"]');
+  expect(await summaryButton.innerText()).toContain('Summary');
+
+  // Click on other buttons and verify their state
+  const buttons = await page.locator('button[role="tab"]');
+  for (const button of buttons) {
+    await button.click();
+
+    // Wait for a brief moment to allow UI state change
+    await page.waitForTimeout(500); // Adjust timeout as necessary
+
+    // Check if the clicked button has aria-selected="true"
+    const isSelected = await button.evaluate((node) => node.getAttribute('aria-selected') === 'true');
+    expect(isSelected).toBeTruthy();
+
+    // Check if other buttons have aria-selected="false"
+    for (const otherButton of buttons) {
+      if (otherButton !== button) {
+        const isNotSelected = await otherButton.evaluate((node) => node.getAttribute('aria-selected') === 'false');
+        expect(isNotSelected).toBeTruthy();
+      }
+    }
+  }
+});
+
+
+
+
+
+const { test, expect } = require('@playwright/test');
+
 test('Display all button components inside a div', async ({ page }) => {
   await page.goto('your-application-url');
   await page.waitForNavigation();

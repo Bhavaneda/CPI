@@ -1,3 +1,43 @@
+const { chromium } = require('playwright');
+
+(async () => {
+  const browser = await chromium.launch({ headless: false }); // Launch browser in non-headless mode for debugging
+  const page = await browser.newPage();
+
+  // Navigate to your webpage
+  await page.goto('https://example.com');  // Replace with your actual URL
+
+  // Click on the div containing the <Star /> component
+  await page.click('div:has(svg.abcd)'); // Adjust this selector to target the correct <div> with <Star />
+
+  // Adding a delay to observe changes
+  await page.waitForTimeout(2000); // Wait for 2 seconds to give time for the class to be applied
+
+  // Wait for the div to change and have the class 'bg-yellow-600'
+  try {
+    await page.waitForSelector('div.bg-yellow-600', { timeout: 5000 });  // Wait for up to 5 seconds
+    console.log('Class "bg-yellow-600" applied successfully');
+  } catch (error) {
+    console.error('Error: Class "bg-yellow-600" not found');
+  }
+
+  // Validate if the class has been applied
+  const hasClass = await page.locator('div.bg-yellow-600').isVisible();
+  console.log('Class "bg-yellow-600" applied:', hasClass);
+
+  // Take a screenshot for debugging
+  await page.screenshot({ path: 'debug-screenshot.png' });
+
+  // Close the browser
+  await browser.close();
+})();
+
+
+
+
+
+
+
 
 const { chromium } = require('playwright');
 

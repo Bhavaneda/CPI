@@ -1,5 +1,31 @@
 const { test, expect } = require('@playwright/test');
 
+test('Display all button components inside a div', async ({ page }) => {
+  await page.goto('your-application-url');
+  await page.waitForNavigation();
+
+  // Wait for the container div to be visible
+  const containerDiv = await page.waitForSelector('div.abcd', { state: 'visible' });
+
+  // Get all buttons within the container
+  const buttons = await containerDiv.$$('button');
+
+  // Iterate over each button and log its text content and attributes
+  for (let button of buttons) {
+    const buttonText = await button.innerText();
+    const buttonAttributes = await button.attributes();
+    console.log(`Button Text: ${buttonText}`);
+    console.log(`Button Attributes: ${JSON.stringify(buttonAttributes, null, 2)}`);
+  }
+});
+
+
+
+
+
+
+const { test, expect } = require('@playwright/test');
+
 test('Interact with "Summary" button based on initial aria-selected state', async ({ page }) => {
   // Navigate to the application URL
   await page.goto('your-application-url');

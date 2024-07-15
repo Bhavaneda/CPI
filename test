@@ -1,5 +1,35 @@
 const { test, expect } = require('@playwright/test');
 
+test('should locate and click the "Summary" button and verify the action', async ({ page }) => {
+  // Navigate to the page
+  await page.goto('your-application-url');
+
+  // Wait for the button with text "Summary" to be visible
+  const summaryButton = page.locator('button:has-text("Summary")');
+  await summaryButton.waitFor({ state: 'visible' });
+
+  // Click the "Summary" button
+  await summaryButton.click();
+
+  // Wait for the result of the click action
+  // This could be a change in some content or the appearance of a specific element
+  await page.waitForTimeout(1000); // Adjust timeout as needed
+
+  // Verify the change
+  // Example: Check if specific content is displayed after clicking the "Summary" button
+  const content = await page.locator('selector-for-the-content-changed-by-button-click');
+  await expect(content).toBeVisible();
+});
+
+
+
+
+
+
+
+
+const { test, expect } = require('@playwright/test');
+
 test('should add to watchlist and show success message', async ({ page }) => {
   // Navigate to the page
   await page.goto('your-application-url');

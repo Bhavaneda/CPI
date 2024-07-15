@@ -1,3 +1,29 @@
+const { chromium } = require('playwright');
+
+(async () => {
+  const browser = await chromium.launch();
+  const page = await browser.newPage();
+
+  // Navigate to your webpage
+  await page.goto('https://example.com');  // Replace with your actual URL
+
+  // Wait for the div that contains the star icon
+  const divWithStar = await page.waitForSelector('div[class^="bg-yellow-600"]'); // Waiting for the div with bg-yellow-600 class
+
+  // Click on the div element to toggle favorite
+  await divWithStar.click();
+
+  // Perform further actions if needed after clicking
+
+  // Close the browser
+  await browser.close();
+})();
+
+
+
+
+
+
 const { test, expect } = require('@playwright/test');
 
 test('click SVG and verify class change', async ({ page }) => {

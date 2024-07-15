@@ -1,3 +1,43 @@
+const { test, expect } = require('@playwright/test');
+
+test.describe('SVG Click Test', () => {
+  test('should click SVG and verify class change on div', async ({ page }) => {
+    // Navigate to the page
+    await page.goto('http://localhost:3000'); // Adjust the URL as needed
+
+    // Wait for the SVG element to appear in the DOM
+    const svgSelector = 'svg.abcd';
+    const svgElement = page.locator(svgSelector);
+    await svgElement.waitFor({ state: 'attached' });
+
+    // Log page content to verify the presence of the SVG element
+    console.log(await page.content());
+
+    // Ensure the SVG element is visible
+    await expect(svgElement).toBeVisible();
+
+    // Click the SVG element
+    await svgElement.click();
+
+    // Locate the div element and verify its class changes to 'bg-yellow-600'
+    const divSelector = 'div.bg-yellow-600';
+    const divElement = page.locator(divSelector);
+
+    // Wait for the class change to occur
+    await divElement.waitFor({ state: 'attached' });
+
+    // Assert that the div has the expected class
+    await expect(divElement).toHaveClass(/bg-yellow-600/);
+  });
+});
+
+
+
+
+
+
+
+
 import { test, expect } from '@playwright/test';
 
 test.describe('Search and Watchlist Components', () => {

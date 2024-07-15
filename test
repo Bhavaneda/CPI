@@ -1,3 +1,52 @@
+const { chromium, expect } = require('playwright');
+
+(async () => {
+  const browser = await chromium.launch({ headless: false }); // Launch browser in non-headless mode for debugging
+  const page = await browser.newPage();
+
+  // Navigate to your webpage
+  await page.goto('https://example.com'); // Replace with your actual URL
+
+  // Wait for the SVG element with data-testid='StarIcon' to be visible
+  const starIcon = await page.locator('svg[data-testid="StarIcon"]');
+  await starIcon.waitFor({ state: 'visible' });
+
+  // Click the SVG element to add to watchlist
+  await starIcon.click();
+
+  // Wait for the element with class 'bg-yellow-600' to be visible
+  const elementWithYellowClass = await page.locator('.bg-yellow-600');
+  await elementWithYellowClass.waitFor({ state: 'visible' });
+
+  // Assert that the element has the class 'bg-yellow-600'
+  await expect(elementWithYellowClass).toHaveClass('bg-yellow-600');
+
+  // Wait for the "Added to watchlist successfully" toast message
+  const addedToastMessage = await page.locator('.Toastify__toast').withText('Added to watchlist successfully');
+  await addedToastMessage.waitFor({ state: 'visible' });
+
+  // Click the SVG element again to remove from watchlist
+  await starIcon.click();
+
+  // Wait for the element with class 'bg-yellow-600' to be hidden
+  await elementWithYellowClass.waitFor({ state: 'hidden' });
+
+  // Wait for the "Removed from watchlist successfully" toast message
+  const removedToastMessage = await page.locator('.Toastify__toast').withText('Removed from watchlist successfully');
+  await removedToastMessage.waitFor({ state: 'visible' });
+
+  // Take a screenshot for debugging
+  await page.screenshot({ path: 'final-state.png' });
+
+  // Close the browser
+  await browser.close();
+})();
+
+
+
+
+
+
 
 const { chromium } = require('playwright');
 

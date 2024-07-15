@@ -1,5 +1,35 @@
 const { test, expect } = require('@playwright/test');
 
+test('Interact with "Summary" button based on initial aria-selected state', async ({ page }) => {
+  // Navigate to the application URL
+  await page.goto('your-application-url');
+  await page.waitForNavigation();
+
+  // Wait for the "Summary" button to be visible and interactable
+  const summaryButton = await page.waitForSelector('button.but[aria-selected="true"]', { state: 'visible' });
+
+  // Verify the initial state of the button
+  const isInitiallySelected = await summaryButton.getAttribute('aria-selected');
+  expect(isInitiallySelected).toBe('true');
+
+  // Click on the "Summary" button
+  await summaryButton.click();
+
+  // Wait for any state change or action to complete
+  await page.waitForTimeout(1000); // Adjust timeout as necessary
+
+  // Verify the expected outcome or state change
+  // For example, check if the button state has changed or a success message appears
+  // Example: Verify a success message
+  const toastMessage = await page.locator('div.Toastify__toast:has-text("Added to watchlist successfully")');
+  await expect(toastMessage).toBeVisible();
+});
+
+
+
+
+const { test, expect } = require('@playwright/test');
+
 test('should locate and click the "Summary" button and verify the action', async ({ page }) => {
   // Navigate to the page
   await page.goto('your-application-url');

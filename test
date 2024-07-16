@@ -1,5 +1,43 @@
 const { test, expect } = require('@playwright/test');
 
+test('Verify clicking on stock cards navigates to respective ticker page', async ({ page }) => {
+  // Navigate to your application page
+  await page.goto('http://localhost:3000'); // Replace with your application URL
+
+  // Wait for the root div to be loaded
+  await page.waitForSelector('#root');
+
+  // Locate the root div
+  const rootDiv = await page.locator('#root');
+
+  // Get all cards with the class "abcd" within the root div
+  const cards = await rootDiv.locator('div.abcd');
+  const cardCount = await cards.count();
+
+  for (let i = 0; i < cardCount; i++) {
+    // Find the ticker name within the card
+    const ticker = await cards.nth(i).locator('p.ticker').textContent();
+    
+    // Click the card to navigate to the respective ticker page
+    await cards.nth(i).click();
+    
+    // Wait for the navigation to the ticker page
+    await page.waitForNavigation();
+    
+    // Verify that the URL contains the ticker
+    await expect(page).toHaveURL(new RegExp(`/search/${ticker.trim()}`));
+    
+    // Go back to the main page to test the next card
+    await page.goBack();
+  }
+});
+
+
+
+
+
+const { test, expect } = require('@playwright/test');
+
 test('Verify StockTabs button states', async ({ page }) => {
   // Navigate to your application page
   await page.goto('your-application-url');

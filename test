@@ -1,3 +1,47 @@
+const { test, expect } = require('@playwright/test');
+
+test('Click on the card with specific ticker within wholegrid', async ({ page }) => {
+  // Navigate to your application page
+  await page.goto('http://localhost:3000');
+
+  // Wait for the page to load completely
+  await page.waitForLoadState('networkidle');
+
+  // Define the ticker you want to interact with
+  const tickerToFind = 'AAPL';
+
+  // Locate the wholegrid container
+  const wholegrid = page.locator('div.wholegrid');
+
+  // Locate all abcd elements within the wholegrid
+  const abcdElements = wholegrid.locator('div.abcd');
+  const abcdCount = await abcdElements.count();
+  console.log(`Found ${abcdCount} elements with class "abcd" in wholegrid`);
+
+  // Iterate through each abcd element to find the one with the specified ticker
+  for (let i = 0; i < abcdCount; i++) {
+    const abcdElement = abcdElements.nth(i);
+    const tickerElement = abcdElement.locator('p.tickerclass');
+    const tickerText = await tickerElement.textContent();
+
+    if (tickerText === tickerToFind) {
+      // Click the abcd element containing the desired ticker
+      await abcdElement.click();
+
+      // Verify navigation or other expected behavior
+      await page.waitForNavigation();
+      const url = page.url();
+      expect(url).toContain(`/search/${tickerToFind}`);
+
+      console.log(`Clicked on the element with ticker ${tickerToFind} and navigated to ${url}`);
+      break;
+    }
+  }
+});
+
+
+
+
 
 const { test, expect } = require('@playwright/test');
 

@@ -1,5 +1,53 @@
 const { test, expect } = require('@playwright/test');
 
+test('Click on the card with specific ticker within wholegrid', async ({ page }) => {
+  // Navigate to your application page
+  await page.goto('http://localhost:3000');
+
+  // Wait for the wholegrid container to appear
+  const wholegrid = await page.waitForSelector('div.wholegrid');
+
+  // Count the number of abcd elements within wholegrid
+  const abcdElementsCount = await wholegrid.locator('div.abcd').count();
+
+  console.log(`Found ${abcdElementsCount} elements with class "abcd" in wholegrid`);
+
+  // Iterate through each abcd element to find the one with the specified ticker
+  for (let i = 0; i < abcdElementsCount; i++) {
+    // Get the abcd element at index i
+    const abcdElement = await wholegrid.locator(`div.abcd`).nth(i);
+
+    // Check if this abcd element contains the desired ticker text
+    const tickerElement = await abcdElement.locator('p.tickerclass').first();
+    const tickerText = await tickerElement.textContent();
+
+    if (tickerText === 'AAPL') { // Replace 'AAPL' with the ticker you are searching for
+      // Click on the abcd element containing the desired ticker
+      await abcdElement.click();
+
+      // Verify navigation or other expected behavior
+      await page.waitForNavigation();
+      const url = page.url();
+      expect(url).toContain(`/search/AAPL`); // Replace 'AAPL' with the ticker
+
+      console.log(`Clicked on the element with ticker "AAPL" and navigated to ${url}`);
+      break; // Exit the loop once the desired element is found and clicked
+    }
+  }
+});
+
+
+
+
+
+
+const { test, expect } = require('@playwright/test');
+
+
+
+
+
+
 test('Navigate to /search/AAPL by clicking on a card with class abcd and text AAPL', async ({ page }) => {
   // Navigate to your application page
   await page.goto('http://localhost:3000');

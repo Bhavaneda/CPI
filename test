@@ -1,5 +1,41 @@
 const { test, expect } = require('@playwright/test');
 
+test('Verify modals open and contain specific button with SVG tag', async ({ page }) => {
+  await page.goto('http://your-app-url'); // Replace with your application URL
+
+  // Find all img tags on the page
+  const imgTags = await page.$$('img');
+
+  // Iterate through each img tag
+  for (const img of imgTags) {
+    // Click on the img tag
+    await img.click();
+
+    // Wait for the modal to appear (adjust selector as per your modal structure)
+    await page.waitForSelector('div.muilist', { state: 'visible' });
+
+    // Verify button with SVG tag in modal
+    const svgButton = await page.locator('div.muilist button > svg[aria-hidden="true"]');
+    const isSvgButtonPresent = await svgButton.isVisible();
+
+    // Assert that the button with SVG tag is present in the modal
+    expect(isSvgButtonPresent).toBeTruthy();
+
+    // Close the modal if needed (assuming there's a close button)
+    const closeButton = await page.locator('button.close-button');
+    await closeButton.click();
+
+    // Wait for the modal to close (optional, depending on application behavior)
+    await page.waitForSelector('div.muilist', { state: 'hidden' });
+  }
+});
+
+
+
+
+
+const { test, expect } = require('@playwright/test');
+
 test('Click on the stock card based on ticker symbol', async ({ page }) => {
   // Navigate to your application page
   await page.goto('your-application-url');

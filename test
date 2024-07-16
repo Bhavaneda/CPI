@@ -1,5 +1,50 @@
 const { test, expect } = require('@playwright/test');
 
+test('Verify buttons within <div class="pb-3">', async ({ page }) => {
+  // Navigate to your application page
+  await page.goto('your-application-url');
+  await page.waitForNavigation();
+
+  // Locate the <div class="pb-3"> and find buttons within it
+  const divPb3 = await page.locator('div.pb-3');
+  const buttons = await divPb3.locator('button[role="tab"]');
+
+  // Check default state of buttons
+  for (let i = 0; i < buttons.length; i++) {
+    const isSelected = await buttons[i].getAttribute('aria-selected');
+    expect(isSelected).toBeFalsy(); // Assuming default is not selected
+  }
+
+  // Click on each button and verify state changes
+  for (let i = 0; i < buttons.length; i++) {
+    await buttons[i].click();
+
+    // Wait for a brief moment to allow UI state change
+    await page.waitForTimeout(500); // Adjust timeout as necessary
+
+    // Check if the clicked button has aria-selected="true"
+    const isSelected = await buttons[i].getAttribute('aria-selected');
+    expect(isSelected).toBeTruthy();
+
+    // Check if other buttons have aria-selected="false"
+    for (let j = 0; j < buttons.length; j++) {
+      if (j !== i) {
+        const isNotSelected = await buttons[j].getAttribute('aria-selected');
+        expect(isNotSelected).toBeFalsy();
+      }
+    }
+  }
+});
+
+
+
+
+
+
+
+
+const { test, expect } = require('@playwright/test');
+
 test('Verify StockTabs button states', async ({ page }) => {
   // Navigate to your application page
   await page.goto('your-application-url');

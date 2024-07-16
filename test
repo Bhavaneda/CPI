@@ -1,5 +1,61 @@
 const { test, expect } = require('@playwright/test');
 
+test('Verify StockTabs button states', async ({ page }) => {
+  // Navigate to your application page
+  await page.goto('your-application-url');
+  
+  // Wait for the specific <div class="mt-6"> containing the buttons
+  const tabContainer = page.locator('div.mt-6').filter({ hasText: /^Summary Peer Comparison Top News Historical Chart$/ }).first();
+
+  // Wait for the tab container to be visible
+  await tabContainer.waitFor();
+
+  // Locate buttons within the tab container
+  const tabButtons = await tabContainer.locator('button[role="tab"]');
+
+  // Print out the texts of all located buttons to verify
+  const buttonCount = await tabButtons.count();
+  for (let i = 0; i < buttonCount; i++) {
+    console.log(`Button ${i} text:`, await tabButtons.nth(i).innerText());
+  }
+
+  // Verify the "Summary" button has aria-selected="true" by default
+  const summaryButton = tabButtons.filter({ hasText: 'Summary' });
+  await expect(summaryButton).toHaveAttribute('aria-selected', 'true');
+
+  // Verify the "Peer Comparison" button has aria-selected="false" by default
+  const peerComparisonButton = tabButtons.filter({ hasText: 'Peer Comparison' });
+  await expect(peerComparisonButton).toHaveAttribute('aria-selected', 'false');
+
+  // Verify the "Top News" button has aria-selected="false" by default
+  const newsButton = tabButtons.filter({ hasText: 'Top News' });
+  await expect(newsButton).toHaveAttribute('aria-selected', 'false');
+
+  // Verify the "Historical Chart" button has aria-selected="false" by default
+  const chartsButton = tabButtons.filter({ hasText: 'Historical Chart' });
+  await expect(chartsButton).toHaveAttribute('aria-selected', 'false');
+
+  // Click on the "Top News" button and verify the state changes
+  await newsButton.click();
+  await expect(newsButton).toHaveAttribute('aria-selected', 'true');
+  await expect(summaryButton).toHaveAttribute('aria-selected', 'false');
+  await expect(peerComparisonButton).toHaveAttribute('aria-selected', 'false');
+  await expect(chartsButton).toHaveAttribute('aria-selected', 'false');
+
+  // Click on the "Charts" button and verify the state changes
+  await chartsButton.click();
+  await expect(chartsButton).toHaveAttribute('aria-selected', 'true');
+  await expect(summaryButton).toHaveAttribute('aria-selected', 'false');
+  await expect(peerComparisonButton).toHaveAttribute('aria-selected', 'false');
+  await expect(newsButton).toHaveAttribute('aria-selected', 'false');
+});
+
+
+
+
+
+const { test, expect } = require('@playwright/test');
+
 test('Verify buttons within <div class="pb-3">', async ({ page }) => {
   // Navigate to your application page
   await page.goto('your-application-url');

@@ -1,3 +1,21 @@
+const elements = await page.locator('.abcd');
+
+// Filter elements based on the text content of adjacent elements
+const filteredElements = await elements.filter(async (element) => {
+    const tickerElement = await element.locator('.tickerclass');
+    const tickerText = await tickerElement.innerText();
+    return tickerText.includes('AAPL'); // Adjust as per your requirement
+});
+
+// Now you have filtered elements containing AAPL, you can interact with them
+for (const element of filteredElements) {
+    await element.click(); // Or perform other actions
+}
+
+
+
+
+
 const { test, expect } = require('@playwright/test');
 
 test('Click on the card with specific ticker within wholegrid', async ({ page }) => {

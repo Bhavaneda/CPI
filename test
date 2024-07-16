@@ -1,3 +1,27 @@
+const { test, expect } = require('@playwright/test');
+
+test('Click on the stock card based on ticker symbol', async ({ page }) => {
+  // Navigate to your application page
+  await page.goto('your-application-url');
+  await page.waitForLoadState('domcontentloaded'); // Ensure the page has fully loaded
+
+  // Define the ticker symbol you're looking for
+  const tickerSymbol = 'AAPL';
+
+  // Locate the parent div containing the ticker symbol
+  const cardLocator = page.locator(`div.wholegrid div.abcd:has-text("${tickerSymbol}")`);
+
+  // Ensure there's only one matching card for the ticker symbol
+  const cardCount = await cardLocator.count();
+  expect(cardCount).toBe(1);
+
+  // Click the card
+  await cardLocator.click();
+});
+
+
+
+
 const elements = await page.locator('.abcd');
 
 // Filter elements based on the text content of adjacent elements

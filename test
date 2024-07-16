@@ -1,3 +1,39 @@
+
+const { test, expect } = require('@playwright/test');
+
+test('Verify count of elements with class "abcd" within wholegrid', async ({ page }) => {
+  // Navigate to your application page
+  await page.goto('http://localhost:3000');
+
+  // Wait for the page to load
+  await page.waitForLoadState('networkidle');
+
+  try {
+    // Locate the wholegrid card
+    const wholegrid = await page.locator('div.wholegrid');
+
+    // Find all elements with class 'abcd' within the wholegrid card
+    const abcdElements = await wholegrid.locator('.abcd');
+    const abcdCount = await abcdElements.count();
+    console.log(`Found ${abcdCount} elements with class "abcd" in wholegrid`);
+
+    // Assert or log the count as needed
+    await expect(abcdCount).toBeGreaterThan(0);
+    console.log(`Assertion passed: Found elements with class "abcd"`);
+
+    // Optionally, you can log the text content or other attributes of these elements
+    for (let j = 0; j < abcdCount; j++) {
+      const text = await abcdElements.nth(j).textContent();
+      console.log(`Element ${j + 1}: Text Content - ${text}`);
+    }
+  } catch (error) {
+    console.error('Error:', error);
+  }
+});
+
+
+
+
 const { test, expect } = require('@playwright/test');
 
 test('Navigate to respective ticker page on card click', async ({ page }) => {

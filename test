@@ -1,5 +1,61 @@
 const { test, expect } = require('@playwright/test');
 
+test('Navigate to respective ticker page on card click', async ({ page }) => {
+  // Navigate to your application page
+  await page.goto('http://localhost:3000');
+
+  // Locate all cards with the class 'abcd'
+  const cards = page.locator('div.abcd');
+  const cardCount = await cards.count();
+  console.log(`Found ${cardCount} cards`);
+
+  if (cardCount === 0) {
+    console.error('No cards found with the class "abcd".');
+    return;
+  }
+
+  // Iterate over each card
+  for (let i = 0; i < cardCount; i++) {
+    console.log(`Processing card ${i + 1} of ${cardCount}`);
+    
+    try {
+      // Locate the ticker name within the card
+      const tickerElement = cards.nth(i).locator('p.tickerclass');
+      const ticker = await tickerElement.textContent();
+      console.log(`Ticker found: ${ticker}`);
+      
+      // Check if ticker text is null or undefined
+      if (!ticker) {
+        console.error(`Ticker not found in card ${i + 1}`);
+        continue;
+      }
+
+      // Click on the card
+      await cards.nth(i).click();
+      console.log(`Clicked on card ${i + 1}, navigating to ticker page...`);
+
+      // Wait for navigation to the respective ticker page
+      await page.waitForNavigation();
+      console.log(`Navigation completed`);
+
+      // Verify the URL is correct
+      await expect(page).toHaveURL(`http://localhost:3000/search/${ticker}`);
+      console.log(`URL verified: http://localhost:3000/search/${ticker}`);
+
+      // Go back to the previous page to continue with the next card
+      await page.goBack();
+      console.log(`Navigated back to the main page`);
+    } catch (error) {
+      console.error(`Error processing card ${i + 1}:`, error);
+    }
+  }
+});
+
+
+
+
+const { test, expect } = require('@playwright/test');
+
 test('Verify clicking on stock cards navigates to respective ticker page', async ({ page }) => {
   // Navigate to your application page
   await page.goto('http://localhost:3000'); // Replace with your application URL

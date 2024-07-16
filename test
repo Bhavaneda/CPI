@@ -4,6 +4,51 @@ test('Verify StockTabs button states', async ({ page }) => {
   // Navigate to your application page
   await page.goto('your-application-url');
   
+  // Wait for the specific <div class="mt-6"> containing the buttons
+  const tabContainer = page.locator('div.mt-6').filter({ hasText: /^Summary Peer Comparison Top News Historical Chart$/ }).first();
+
+  // Wait for the buttons to be visible
+  await tabContainer.waitFor();
+
+  // Locate buttons within the tab container
+  const tabButtons = await tabContainer.locator('button[role="tab"]');
+
+  // Verify the "Summary" button has aria-selected="true" by default
+  const summaryButton = tabButtons.nth(0);
+  await expect(summaryButton).toHaveAttribute('aria-selected', 'true');
+
+  // Verify the other buttons have aria-selected="false" by default
+  const newsButton = tabButtons.nth(1);
+  await expect(newsButton).toHaveAttribute('aria-selected', 'false');
+
+  const chartsButton = tabButtons.nth(2);
+  await expect(chartsButton).toHaveAttribute('aria-selected', 'false');
+
+  // Click on the "Top News" button and verify the state changes
+  await newsButton.click();
+  await expect(newsButton).toHaveAttribute('aria-selected', 'true');
+  await expect(summaryButton).toHaveAttribute('aria-selected', 'false');
+  await expect(chartsButton).toHaveAttribute('aria-selected', 'false');
+
+  // Click on the "Charts" button and verify the state changes
+  await chartsButton.click();
+  await expect(chartsButton).toHaveAttribute('aria-selected', 'true');
+  await expect(summaryButton).toHaveAttribute('aria-selected', 'false');
+  await expect(newsButton).toHaveAttribute('aria-selected', 'false');
+});
+
+
+
+
+
+
+
+const { test, expect } = require('@playwright/test');
+
+test('Verify StockTabs button states', async ({ page }) => {
+  // Navigate to your application page
+  await page.goto('your-application-url');
+  
   // Wait for the <div class="mt-6"> to be visible
   await page.locator('div.mt-6').waitFor();
 

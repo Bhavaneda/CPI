@@ -1,5 +1,52 @@
 const { test, expect } = require('@playwright/test');
 
+test('Navigate to /search/AAPL by clicking on a card with class abcd and text AAPL', async ({ page }) => {
+  // Navigate to your application page
+  await page.goto('http://localhost:3000');
+
+  // Wait for the page to load completely
+  await page.waitForLoadState('networkidle');
+
+  // Define the ticker you want to interact with
+  const tickerToFind = 'AAPL';
+
+  // Locate the abcd elements
+  const abcdElements = await page.locator('div.abcd');
+
+  // Iterate through each abcd element to find the one with the specified ticker
+  let found = false;
+  for (const abcdElement of abcdElements) {
+    // Check if this abcd element contains the desired ticker text
+    const tickerElement = await abcdElement.locator('p.tickerclass');
+    const tickerText = await tickerElement.textContent();
+
+    if (tickerText === tickerToFind) {
+      // Click the abcd element containing the desired ticker
+      await abcdElement.click();
+      found = true;
+      break;
+    }
+  }
+
+  // Assert that we found and clicked the element with the correct ticker
+  expect(found).toBeTruthy();
+
+  // Wait for navigation to complete
+  await page.waitForNavigation();
+
+  // Verify if the URL matches the expected route
+  const url = page.url();
+  expect(url).toContain(`/search/${tickerToFind}`);
+  console.log(`Navigated to ${url} successfully.`);
+});
+
+
+
+
+
+
+const { test, expect } = require('@playwright/test');
+
 test('Click on the card with specific ticker within wholegrid', async ({ page }) => {
   // Navigate to your application page
   await page.goto('http://localhost:3000');

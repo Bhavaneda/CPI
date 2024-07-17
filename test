@@ -1,5 +1,43 @@
 import { test, expect } from '@playwright/test';
 
+test('Check if clicking on rect tag displays the g tag', async ({ page }) => {
+  // Navigate to your application page
+  await page.goto('http://localhost:3000'); // Replace with your actual URL
+
+  // Locate the rect tag with class 'highchartrect'
+  const rectElement = page.locator('rect.highchartrect');
+
+  // Scroll the rect element into view
+  await rectElement.scrollIntoViewIfNeeded();
+
+  // Wait for the element to be visible
+  await expect(rectElement).toBeVisible();
+
+  // Force click on the rect element
+  await rectElement.click({ force: true });
+
+  // Wait for the g tag with class 'smallbox' and style cursor:default to be visible
+  const gElement = page.locator('g.smallbox[style="cursor: default"]');
+  await expect(gElement).toBeVisible();
+
+  // Check if the g tag contains the expected text
+  const textContent = await gElement.textContent();
+  const expectedText = ['Open', 'High', 'Low', 'Close'];
+  expectedText.forEach(text => {
+    expect(textContent).toContain(text);
+  });
+
+  // Optional: Log result for debugging
+  console.log('The g tag with class "smallbox" is displayed with the expected text.');
+});
+
+
+
+
+
+
+import { test, expect } from '@playwright/test';
+
 test('Check if hovering over g tag changes another g tag\'s class', async ({ page }) => {
   // Navigate to your application page
   await page.goto('http://localhost:3000'); // Replace with your actual URL

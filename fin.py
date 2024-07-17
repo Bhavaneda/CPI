@@ -1,3 +1,347 @@
+import pandas as pd
+from pymongo import MongoClient
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+import pmdarima as pm
+import pickle
+import os
+import warnings
+# Suppress warnings
+warnings.filterwarnings("ignore")
+
+def fetch_data_from_mongodb(ticker):
+    
+    client = MongoClient('mongodb://localhost:27017/')
+    db = client['stockdata']
+    collection = db['daily_price']
+    cursor = collection.find({'Ticker': ticker})
+    df = pd.DataFrame(list(cursor))
+    client.close()
+    return df
+
+def preprocess_data(df):
+   
+    df['Date'] = pd.to_datetime(df['Date'])
+    df.set_index('Date', inplace=True)
+    df.sort_index(inplace=True)
+    return df[[ 'Adj Close']]
+
+def train_sarima_model(ticker, df):
+    
+    try:
+        model = pm.auto_arima(df['Adj Close'],seasonal=True, m=12,  d=None, D=1, trace=True,error_action='ignore',suppress_warnings=True,stepwise=True)
+       # fitted_model = model.fit(disp=False)
+        os.makedirs('sarima_models', exist_ok=True)
+        with open(f'sarima_models/{ticker}_sarima_model.pkl', 'wb') as f:
+            pickle.dump(model, f)
+        print(f"SARIMA model trained and saved successfully for {ticker}.")
+    except Exception as e:
+        print(f"Error training SARIMA model for {ticker}: {str(e)}")
+
+if __name__ == '__main__':
+    tickers = ['MSFT']
+    for ticker in tickers:
+        data = fetch_data_from_mongodb(ticker)
+        ts = preprocess_data(data)
+        train_sarima_model(ticker, ts)
+
+
+
+from flask import Flask, request, jsonify
+import pandas as pd
+import pickle
+from pymongo import MongoClient
+from datetime import datetime, timedelta
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+
+app = Flask(__name__)
+
+# Function to load SARIMA models from pickle files
+def load_sarima_models():
+    tickers = ['MSFT']
+    models = {}
+    for ticker in tickers:
+        try:
+            with open(f'sarima_models/{ticker}_sarima_model.pkl', 'rb') as f:
+                model = pickle.load(f)
+                models[ticker] = model
+                print(f"Loaded SARIMA model for {ticker}.")
+        except Exception as e:
+            print(f"Error loading SARIMA model for {ticker}: {str(e)}")
+    return models
+
+# Function to fetch historical data from MongoDB
+def fetch_historical_data(ticker):
+    try:
+        client = MongoClient('mongodb://localhost:27017/')
+        db = client['stockdata']
+        collection = db['daily_price']
+        cursor = collection.find({'Ticker': ticker})
+        df = pd.DataFrame(list(cursor))
+        client.close()
+        return df
+    except Exception as e:
+        print(f"Error fetching data from MongoDB for {ticker}: {str(e)}")
+        return None
+def preprocess_data(df):
+   
+    df['Date'] = pd.to_datetime(df['Date'])
+    df.set_index('Date', inplace=True)
+    df.sort_index(inplace=True)
+    return df[['Adj Close']]
+# Function to preprocess data for SARIMA model prediction
+
+# Function to predict stock prices using a SARIMA model
+def predict_stock_prices_sarima(sarima_model, latest_data, days_ahead):
+    try:
+        ts = preprocess_data(latest_data)
+        if ts is None:
+            return None
+
+       
+
+        # Number of days to predict to reach the current date and 30 days ahead
+        last_date = ts.index[-1]
+        current_date = datetime.now().date()
+        days_to_current_date = (current_date - last_date.date()).days
+        total_days_ahead = days_to_current_date + days_ahead
+
+        forecast_index = pd.date_range(start=ts.index[-1], periods=total_days_ahead + 1, freq='D')[1:]
+        
+        forecast = sarima_model.predict(n_periods=len(forecast_index))
+        forecast_values = forecast.tolist()
+
+        target_dates = [forecast_index[i].strftime('%Y-%m-%d') for i in range(len(forecast_index))]
+        
+        predictions = dict(zip(target_dates, forecast_values))
+        return predictions
+    
+    except Exception as e:
+        print(f"Error predicting stock prices using SARIMA model: {str(e)}")
+        return None
+
+# Load SARIMA models on application startup
+sarima_models = load_sarima_models()
+
+@app.route('/predict/next_month', methods=['POST'])
+def predict_next_month_sarima():
+    ticker = request.json['ticker']
+    
+    try:
+        if ticker not in sarima_models:
+            return jsonify({'error': f'Model for {ticker} not found.'}), 404
+        
+        historical_data = fetch_historical_data(ticker)
+        if historical_data is None:
+            return jsonify({'error': f'Failed to fetch historical data for {ticker}.'}), 500
+        
+        sarima_model = sarima_models[ticker]
+        predictions = predict_stock_prices_sarima(sarima_model, historical_data, days_ahead=30)
+        
+        if predictions is not None:
+            current_date = datetime.now().date().strftime('%Y-%m-%d')
+            predictions = {date: value for date, value in predictions.items() if date >= current_date}
+            return jsonify({'ticker': ticker, 'predictions': predictions})
+        else:
+            return jsonify({'error': 'Failed to predict stock prices using SARIMA model.'}), 500
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
+
+
+
+
+
+import pandas as pd
+from pymongo import MongoClient
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+import pmdarima as pm
+import pickle
+import os
+import warnings
+# Suppress warnings
+warnings.filterwarnings("ignore")
+
+def fetch_data_from_mongodb(ticker):
+    
+    client = MongoClient('mongodb://localhost:27017/')
+    db = client['stockdata']
+    collection = db['daily_price']
+    cursor = collection.find({'Ticker': ticker})
+    df = pd.DataFrame(list(cursor))
+    client.close()
+    return df
+
+def preprocess_data(df):
+   
+    df['Date'] = pd.to_datetime(df['Date'])
+    df.set_index('Date', inplace=True)
+    df.sort_index(inplace=True)
+    return df[[ 'Open','High','Low','Close', 'Adj Close']]
+
+def train_sarima_model(ticker, df):
+    
+    try:
+        model = pm.auto_arima(df['Adj Close'],exog=df[['Open','High','Low','Close']],seasonal=True, m=12,  d=None, D=1, trace=True,error_action='ignore',suppress_warnings=True,stepwise=True)
+      
+        os.makedirs('sarimax_models', exist_ok=True)
+        with open(f'sarimax_models/{ticker}_sarimax_model.pkl', 'wb') as f:
+            pickle.dump(model, f)
+        print(f"SARIMAX model trained and saved successfully for {ticker}.")
+    except Exception as e:
+        print(f"Error training SARIMA model for {ticker}: {str(e)}")
+
+if __name__ == '__main__':
+    tickers = ['MSFT']
+    for ticker in tickers:
+        data = fetch_data_from_mongodb(ticker)
+        ts = preprocess_data(data)
+        train_sarima_model(ticker, ts)
+
+
+
+
+
+from flask import Flask, request, jsonify
+import pandas as pd
+import pickle
+from pymongo import MongoClient
+from datetime import datetime, timedelta
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+
+app = Flask(__name__)
+
+# Function to load SARIMA models from pickle files
+def load_sarimax_models():
+    tickers = ['MSFT']
+    models = {}
+    for ticker in tickers:
+        try:
+            with open(f'sarimax_models/{ticker}_sarimax_model.pkl', 'rb') as f:
+                model = pickle.load(f)
+                models[ticker] = model
+                print(f"Loaded SARIMAX model for {ticker}.")
+        except Exception as e:
+            print(f"Error loading SARIMAX model for {ticker}: {str(e)}")
+    return models
+
+# Function to fetch historical data from MongoDB
+def fetch_historical_data(ticker):
+    try:
+        client = MongoClient('mongodb://localhost:27017/')
+        db = client['stockdata']
+        collection = db['daily_price']
+        cursor = collection.find({'Ticker': ticker})
+        df = pd.DataFrame(list(cursor))
+        client.close()
+        return df
+    except Exception as e:
+        print(f"Error fetching data from MongoDB for {ticker}: {str(e)}")
+        return None
+def preprocess_data(df):
+   
+    df['Date'] = pd.to_datetime(df['Date'])
+    df.set_index('Date', inplace=True)
+    df.sort_index(inplace=True)
+    return df[['Open','High','Low','Close']]
+# Function to preprocess data for SARIMA model prediction
+
+def create_exog_vars(data):
+    try:
+        exog_vars = data[['Open','High','Low','Close']].copy()
+        exog_vars['Close_lag'] = exog_vars['Close'].shift(1)
+        exog_vars['Open_lag'] = exog_vars['Open'].shift(1)
+        exog_vars['High_lag'] = exog_vars['High'].shift(1)
+        exog_vars['Low_lag'] = exog_vars['Low'].shift(1)
+        exog_vars.dropna(inplace=True)
+        return exog_vars
+    except Exception as e:
+        print(f"Error creating exogenous variables: {str(e)}")
+        return None
+
+# Function to adjust exogenous variables
+def adjust_exog_variables(exog_vars, train_data, window):
+    try:
+        for col in ['Open_lag','Close_lag','High_lag','Low_lag']:
+            last_change = train_data[col.replace('_lag', '')].diff().tail(window).mean()
+            last_value = train_data[col.replace('_lag', '')].iloc[-1]
+            adjustment_factor = 1 + (last_change / last_value)
+            exog_vars[col] = exog_vars[col] * adjustment_factor
+        return exog_vars
+    except Exception as e:
+        print(f"Error adjusting exogenous variables: {str(e)}")
+        return None
+
+# Function to predict stock prices using a SARIMA model
+def predict_stock_prices_sarima(sarima_model, latest_data, days_ahead):
+    try:
+        ts = preprocess_data(latest_data)
+        if ts is None:
+            return None
+        ts=create_exog_vars(ts)
+        exog=adjust_exog_variables(ts,latest_data,7)
+       
+
+        # Number of days to predict to reach the current date and 30 days ahead
+        last_date = ts.index[-1]
+        current_date = datetime.now().date()
+        days_to_current_date = (current_date - last_date.date()).days
+        total_days_ahead = days_to_current_date + days_ahead
+
+        forecast_index = pd.date_range(start=ts.index[-1], periods=total_days_ahead + 1, freq='D')[1:]
+        exog=exog.iloc[-total_days_ahead:]
+        print(exog)
+        forecast = sarima_model.predict(n_periods=len(forecast_index),exog=exog)
+        forecast_values = forecast.tolist()
+
+        target_dates = [forecast_index[i].strftime('%Y-%m-%d') for i in range(len(forecast_index))]
+        
+        predictions = dict(zip(target_dates, forecast_values))
+        return predictions
+    
+    except Exception as e:
+        print(f"Error predicting stock prices using SARIMA model: {str(e)}")
+        return None
+
+# Load SARIMA models on application startup
+sarima_models = load_sarimax_models()
+
+@app.route('/predict/next_month', methods=['POST'])
+def predict_next_month_sarima():
+    ticker = request.json['ticker']
+    
+    try:
+        if ticker not in sarima_models:
+            return jsonify({'error': f'Model for {ticker} not found.'}), 404
+        
+        historical_data = fetch_historical_data(ticker)
+        if historical_data is None:
+            return jsonify({'error': f'Failed to fetch historical data for {ticker}.'}), 500
+        
+        sarima_model = sarima_models[ticker]
+        predictions = predict_stock_prices_sarima(sarima_model, historical_data, days_ahead=30)
+        
+        if predictions is not None:
+            current_date = datetime.now().date().strftime('%Y-%m-%d')
+            predictions = {date: value for date, value in predictions.items() if date >= current_date}
+            return jsonify({'ticker': ticker, 'predictions': predictions})
+        else:
+            return jsonify({'error': 'Failed to predict stock prices using SARIMA model.'}), 500
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
+
+
+
+
+
 
 import pandas as pd
 from pymongo import MongoClient

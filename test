@@ -1,3 +1,27 @@
+import { test, expect } from '@playwright/test';
+
+test('Check if hovering over g tag changes another g tag\'s class', async ({ page }) => {
+  // Navigate to your application page
+  await page.goto('http://localhost:3000'); // Replace with your actual URL
+
+  // Hover over the g tag with class 'highchart-series-group'
+  const groupElement = await page.locator('g.highchart-series-group');
+  await groupElement.hover();
+
+  // Check if the class of the g tag with class 'highchart-series' changes to 'highchart-series highchart-series-hover'
+  const seriesElement = await page.locator('g.highchart-series[clip-path="url(#highchart)"]');
+
+  // Wait for the class change
+  await expect(seriesElement).toHaveClass('highchart-series highchart-series-hover');
+
+  // Optional: Log result for debugging
+  console.log('The g tag with class "highchart-series" has changed to "highchart-series highchart-series-hover" after hovering.');
+});
+
+
+
+
+
 const { test, expect } = require('@playwright/test');
 
 test('Verify modals open and contain specific button with SVG tag', async ({ page }) => {

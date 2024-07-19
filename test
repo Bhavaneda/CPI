@@ -1,5 +1,40 @@
 import { test, expect } from '@playwright/test';
 
+test.describe('SearchComponent Debounce Test', () => {
+  test('should debounce search input and display correct result', async ({ page }) => {
+    // Navigate to the page with the SearchComponent
+    await page.goto('http://localhost:3000'); // Adjust the URL to your development server
+
+    // Select the input element
+    const input = page.locator('input#searchInput');
+
+    // Simulate typing 'AAPL' rapidly into the search input
+    await input.fill('A');
+    await page.waitForTimeout(100); // Wait for a short period
+    await input.fill('AA');
+    await page.waitForTimeout(100); // Wait for a short period
+    await input.fill('AAP');
+    await page.waitForTimeout(100); // Wait for a short period
+    await input.fill('AAPL');
+
+    // Wait for the debounce delay plus a buffer to ensure the debounced function has run
+    await page.waitForTimeout(400);
+
+    // Check if the result for "AAPL | Apple Inc" appears
+    const result = page.locator('text=AAPL | Apple Inc');
+    await expect(result).toBeVisible();
+  });
+});
+
+
+
+
+
+
+
+
+import { test, expect } from '@playwright/test';
+
 test('Check if clicking on rect tag displays the g tag', async ({ page }) => {
   // Navigate to your application page
   await page.goto('http://localhost:3000'); // Replace with your actual URL

@@ -1,3 +1,52 @@
+
+import { test, expect } from '@playwright/test';
+
+test.describe('SearchComponent Debounce Test', () => {
+  test('should debounce search input and call search function once after delay', async ({ page }) => {
+    // Navigate to the page with the SearchComponent
+    await page.goto('http://localhost:3000'); // Adjust the URL to your development server
+
+    // Mock the search function
+    await page.addScriptTag({ content: `
+      window.originalFetch = window.fetch;
+      window.searchFunctionCalls = [];
+      window.fetch = function(...args) {
+        window.searchFunctionCalls.push(args);
+        return window.originalFetch.apply(this, args);
+      };
+    `});
+
+    // Select the input element
+    const input = page.locator('input#searchInput');
+
+    // Simulate typing 'AAPL' rapidly into the search input
+    await input.fill('A');
+    await page.waitForTimeout(100); // Wait for a short period
+    await input.fill('AA');
+    await page.waitForTimeout(100); // Wait for a short period
+    await input.fill('AAP');
+    await page.waitForTimeout(100); // Wait for a short period
+    await input.fill('AAPL');
+
+    // Wait for the debounce delay plus a buffer to ensure the debounced function has run
+    await page.waitForTimeout(400);
+
+    // Check if the search function was called only once after the debounce period
+    const calls = await page.evaluate(() => window.searchFunctionCalls.length);
+    expect(calls).toBe(1);
+
+    // Check if the result for "AAPL | Apple Inc" appears
+    const result = page.locator('text=AAPL | Apple Inc');
+    await expect(result).toBeVisible();
+  });
+});
+
+
+
+
+
+
+
 import { test, expect } from '@playwright/test';
 
 test.describe('SearchComponent Debounce Test', () => {

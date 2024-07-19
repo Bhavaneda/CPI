@@ -1,5 +1,46 @@
 import { test, expect } from '@playwright/test';
 
+test('debounce functionality for stock search', async ({ page }) => {
+  // Navigate to the page containing the SearchComponent
+  await page.goto('http://localhost:3000'); // Adjust the URL as needed
+
+  // Mock the API call to track the number of times it gets called
+  let callCount = 0;
+  await page.route('**/autocomplete', (route) => {
+    callCount++;
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify([]), // Mock an empty response
+    });
+  });
+
+  // Locate the search input field
+  const searchInput = page.locator('#searchInput input');
+
+  // Trigger search input changes with a short interval
+  await searchInput.fill('A'); // First input
+  await page.waitForTimeout(100); // Wait for 100ms
+  await searchInput.fill('Ap'); // Second input
+  await page.waitForTimeout(100); // Wait for another 100ms
+  await searchInput.fill('App'); // Third input
+  await page.waitForTimeout(100); // Wait for another 100ms
+  await searchInput.fill('Appl'); // Fourth input
+  await page.waitForTimeout(100); // Wait for another 100ms
+  await searchInput.fill('Apple'); // Final input
+
+  // Wait for the debounce delay
+  await page.waitForTimeout(500);
+
+  // Check that the search service was called only once
+  expect(callCount).toBe(1);
+});
+
+
+
+
+
+import { test, expect } from '@playwright/test';
+
 test('debounce functionality works correctly', async ({ page }) => {
   // Navigate to the page containing the SearchComponent
   await page.goto('http://localhost:3000'); // Adjust URL as needed

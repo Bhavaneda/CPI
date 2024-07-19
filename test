@@ -1,5 +1,42 @@
 import { test, expect } from '@playwright/test';
 
+test('debounce functionality works correctly', async ({ page }) => {
+  // Navigate to the page containing the SearchComponent
+  await page.goto('http://localhost:3000'); // Adjust URL as needed
+
+  // Intercept the network request to monitor API calls
+  const [response] = await Promise.all([
+    page.waitForResponse(response => response.url().includes('/api/autocomplete') && response.status() === 200),
+    page.evaluate(() => {
+      // Simulate rapid typing in the search input field
+      const input = document.querySelector('#searchInput input') as HTMLInputElement;
+      input.value = 'A'; input.dispatchEvent(new Event('input'));
+      setTimeout(() => { input.value = 'Ap'; input.dispatchEvent(new Event('input')); }, 100);
+      setTimeout(() => { input.value = 'App'; input.dispatchEvent(new Event('input')); }, 200);
+      setTimeout(() => { input.value = 'Appl'; input.dispatchEvent(new Event('input')); }, 300);
+      setTimeout(() => { input.value = 'Apple'; input.dispatchEvent(new Event('input')); }, 400);
+    })
+  ]);
+
+  // Wait for the debounce delay (300ms) after the last input
+  await page.waitForTimeout(300);
+
+  // Check the request count
+  const requestCount = (await page.request.getRequests()).filter(request => request.url().includes('/api/autocomplete')).length;
+
+  // Ensure `searchStocks` was called only once after debounce delay
+  expect(requestCount).toBe(1);
+});
+
+
+
+
+
+
+
+
+import { test, expect } from '@playwright/test';
+
 // Custom function to check for debounce behavior
 test('debounce behavior on search input', async ({ page }) => {
   // Navigate to the page containing the SearchComponent

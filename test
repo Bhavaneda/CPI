@@ -1,5 +1,55 @@
 import { test, expect } from '@playwright/test';
 
+// Custom function to check for debounce behavior
+test('debounce behavior on search input', async ({ page }) => {
+  // Navigate to the page containing the SearchComponent
+  await page.goto('http://localhost:3000'); // Adjust the URL as needed
+
+  // Locate the search input field
+  const searchInput = page.locator('#searchInput input');
+
+  // Mock function to check call counts
+  await page.evaluate(() => {
+    window['debounceCallCount'] = 0;
+    window['originalDebouncedFunction'] = window['debouncedFunction'];
+
+    window['debouncedFunction'] = function () {
+      window['debounceCallCount']++;
+    };
+  });
+
+  // Trigger search input changes with a short interval
+  await searchInput.fill('A'); // First input
+  await page.waitForTimeout(100); // Wait for 100ms
+  await searchInput.fill('Ap'); // Second input
+  await page.waitForTimeout(100); // Wait for another 100ms
+  await searchInput.fill('App'); // Third input
+  await page.waitForTimeout(100); // Wait for another 100ms
+  await searchInput.fill('Appl'); // Fourth input
+  await page.waitForTimeout(100); // Wait for another 100ms
+  await searchInput.fill('Apple'); // Final input
+
+  // Wait for the debounce delay
+  await page.waitForTimeout(300);
+
+  // Check the debounce call count
+  const debounceCallCount = await page.evaluate(() => window['debounceCallCount']);
+  expect(debounceCallCount).toBe(1); // Expect only one call after debounce delay
+
+  // Cleanup by restoring the original function
+  await page.evaluate(() => {
+    window['debouncedFunction'] = window['originalDebouncedFunction'];
+  });
+});
+
+
+
+
+
+
+
+import { test, expect } from '@playwright/test';
+
 test.describe('SearchComponent Debounce Test', () => {
   test('should debounce search input and call the search function only once after delay', async ({ page }) => {
     // Navigate to the page with the SearchComponent

@@ -1,3 +1,69 @@
+const { test, expect } = require('@playwright/test');
+
+test.describe('SearchComponent', () => {
+  test('should debounce search input changes and show autocomplete options', async ({ page }) => {
+    await page.goto('http://localhost:3000'); // Adjust the URL to your development server
+
+    const input = page.locator('#searchInput input');
+    const loadingIndicator = page.locator('circle'); // Adjust selector based on your loading indicator
+    const autocompleteOptions = page.locator('.MuiAutocomplete-option'); // Adjust the selector to match your options
+
+    // Enter a search term that should return results after debounce
+    await input.fill('Apple');
+    await page.waitForTimeout(400); // Wait longer than debounce delay
+
+    // Ensure loading indicator is visible
+    await expect(loadingIndicator).toBeVisible();
+
+    // Wait for results to load
+    await page.waitForTimeout(1000); // Adjust based on your API response time
+
+    // Check if autocomplete options are displayed
+    await expect(autocompleteOptions).toHaveCount(1); // Adjust count based on expected results
+
+    // Simulate selecting an option
+    await autocompleteOptions.first().click();
+
+    // Verify navigation or rendering of the Details component
+    const details = page.locator('text=Details'); // Adjust based on actual content of Details component
+    await expect(details).toBeVisible();
+  });
+
+  test('should handle no results found error', async ({ page }) => {
+    await page.goto('http://localhost:3000');
+
+    const input = page.locator('#searchInput input');
+    const toast = page.locator('.Toastify__toast--error'); // Adjust based on your toast notification class
+
+    // Enter a search term that yields no results
+    await input.fill('NonExistingStock');
+    await page.waitForTimeout(1000); // Wait for debounce and loading
+
+    // Check for the toast notification
+    await expect(toast).toContainText('No results found!');
+  });
+
+  test('should handle data loading error', async ({ page }) => {
+    await page.goto('http://localhost:3000');
+
+    const input = page.locator('#searchInput input');
+    const toast = page.locator('.Toastify__toast--error'); // Adjust based on your toast notification class
+
+    // Simulate a backend error by entering a special keyword or breaking the backend temporarily
+    await input.fill('ErrorTrigger');
+    await page.waitForTimeout(1000); // Wait for debounce and loading
+
+    // Check for the toast notification
+    await expect(toast).toContainText('Error loading data!');
+  });
+});
+
+
+
+
+
+
+
 import pandas as pd
 from datetime import datetime
 from pymongo import MongoClient
